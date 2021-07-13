@@ -16,23 +16,23 @@ flink版本1.13
        address STRING，
        PRIMARY KEY(ts, id) NOT ENFORCED
     ) WITH (
-    'connector' = 'clickhouse',  -- 使用 ck connector
-    'url' = 'clickhouse://xxxxx:8123',  --集群中任意一台
-    'username' = '',  
-    'password' = '',  
-    'database-name' = 'test', 
-    'table-name' = 'lbs',  
-    -----以下为sink参数------
-    'sink.batch-size' = '1000',  -- 批量插入数量
-    'sink.flush-interval' = '',  --刷新时间,默认1s
-    'sink.max-retries' = '3',  --最大重试次数
-    'sink.partition-strategy' = 'balanced', --插入策略hash\balanced\shuffle
-    --'sink.write-local' = 'false',--是否写入本地表
-    'sink.ignore-delete' = 'true',
-    -----以下为source参数-----
-    'lookup.cache.max-rows' = '100',
-    'lookup.cache.ttl' = '10',
-    'lookup.max-retries' = '3'
+        'connector' = 'clickhouse',  -- 使用 ck connector
+        'url' = 'clickhouse://xxxxx:8123',  --集群中任意一台
+        'username' = '',  
+        'password' = '',  
+        'database-name' = 'test', 
+        'table-name' = 'lbs',  
+        -----以下为sink参数------
+        'sink.batch-size' = '1000',  -- 批量插入数量
+        'sink.flush-interval' = '',  --刷新时间,默认1s
+        'sink.max-retries' = '3',  --最大重试次数
+        'sink.partition-strategy' = 'balanced', --插入策略hash\balanced\shuffle
+        --'sink.write-local' = 'false',--是否写入本地表
+        'sink.ignore-delete' = 'true',
+        -----以下为source参数-----
+        'lookup.cache.max-rows' = '100',
+        'lookup.cache.ttl' = '10',
+        'lookup.max-retries' = '3'
     );
 
     CREATE TABLE test.lbs (
