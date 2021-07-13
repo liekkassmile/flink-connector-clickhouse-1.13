@@ -16,7 +16,7 @@ flink版本1.13
        address STRING，
        PRIMARY KEY(ts, id) NOT ENFORCED
     ) WITH (
-    'connector' = 'clickhouse',  -- 使用 kafka connector
+    'connector' = 'clickhouse',  -- 使用 ck connector
     'url' = 'clickhouse://xxxxx:8123',  --集群中任意一台
     'username' = '',  
     'password' = '',  
