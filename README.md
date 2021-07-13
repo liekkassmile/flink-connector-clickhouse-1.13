@@ -52,7 +52,7 @@ flink版本1.13
         'topic' = 'LBS',  
         'scan.startup.mode' = 'latest-offfset',  
         --'scan.startup.mode' = 'earliest-offset',  
-        'properties.group.ib' = 'group1',  -- zookeeper 地址
+        'properties.group.ib' = 'group1',  
         'properties.bootstrap.servers' = 'xxxx1:9092,xxxx2:9092',  -- kafka broker 地址
         'format.type' = 'csv',  -- 数据源格式为 csv
         'csv.disable-quote-character' = 'true',
