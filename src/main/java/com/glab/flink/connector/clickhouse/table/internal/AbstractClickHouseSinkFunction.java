@@ -86,10 +86,9 @@ public abstract class AbstractClickHouseSinkFunction extends RichSinkFunction<Ro
          * @return
          */
         private ClickHouseBatchSinkFunction createBatchSinkFunction(ClickHouseRowConverter converter) {
-            ClickHouseBatchExecutor clickHouseBatchExecutor = null;
+            ClickHouseExecutor executor;
             if (this.primaryKey.isPresent() && !this.options.getIgnoreDelete()) {
-                ClickHouseUpsertExecutor clickHouseUpsertExecutor
-                        = ClickHouseExecutor.createUpsertExecutor(
+                executor = ClickHouseExecutor.createUpsertExecutor(
                                 this.options.getTableName(),
                                 this.fieldNames,
                                 listToStringArray(((UniqueConstraint)this.primaryKey.get()).getColumns()),
@@ -97,14 +96,14 @@ public abstract class AbstractClickHouseSinkFunction extends RichSinkFunction<Ro
                                 this.options);
             } else {
                 String sql = ClickHouseStatementFactory.getInsertIntoStatement(this.options.getTableName(), this.fieldNames);
-                clickHouseBatchExecutor = new ClickHouseBatchExecutor(sql,
+                executor = new ClickHouseBatchExecutor(sql,
                         converter,
                         this.options.getFlushInterval(),
                         this.options.getBatchSize(),
                         this.options.getMaxRetries(),
                         this.rowDataTypeInformation);
             }
-            return new ClickHouseBatchSinkFunction(new ClickHouseConnectionProvider(this.options), clickHouseBatchExecutor, this.options);
+            return new ClickHouseBatchSinkFunction(new ClickHouseConnectionProvider(this.options), executor, this.options);
         }
 
         /**
