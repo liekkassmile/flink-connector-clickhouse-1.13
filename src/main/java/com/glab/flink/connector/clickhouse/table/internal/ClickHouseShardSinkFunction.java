@@ -30,7 +30,7 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
 
     private static final Logger LOG = LoggerFactory.getLogger(ClickHouseShardSinkFunction.class);
 
-    private static final Pattern PATTERN = Pattern.compile("Distributed\\((?<cluster>[a-zA-Z_][0-9a-zA-Z_]*),\\s*(?<database>[a-zA-Z_][0-9a-zA-Z_]*),\\s*(?<table>[a-zA-Z_][0-9a-zA-Z_]*)");
+    private static final Pattern PATTERN = Pattern.compile("Distributed\\((?<cluster>[a-zA-Z_'][0-9a-zA-Z_']*),\\s*(?<database>[a-zA-Z_'][0-9a-zA-Z_']*),\\s*(?<table>[a-zA-Z_'][0-9a-zA-Z_']*)");
 
     private final ClickHouseConnectionProvider connectionProvider;
 
