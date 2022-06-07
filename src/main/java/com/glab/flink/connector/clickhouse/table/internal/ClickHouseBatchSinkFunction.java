@@ -54,7 +54,9 @@ public class ClickHouseBatchSinkFunction extends AbstractClickHouseSinkFunction{
         this.executor.addBatch(rowData);
         this.batchCount++;
         if(this.batchCount >= this.options.getBatchSize()) {
+            LOG.info("flush :" + this.batchCount + "条数据!!");
             flush();
+            this.batchCount = 0;
         }
     }
 

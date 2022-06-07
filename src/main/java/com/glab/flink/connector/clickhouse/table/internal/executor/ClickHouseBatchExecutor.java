@@ -3,9 +3,6 @@ package com.glab.flink.connector.clickhouse.table.internal.executor;
 import com.glab.flink.connector.clickhouse.table.internal.connection.ClickHouseConnectionProvider;
 import com.glab.flink.connector.clickhouse.table.internal.converter.ClickHouseRowConverter;
 import com.google.common.util.concurrent.AbstractExecutionThreadService;
-import com.google.common.util.concurrent.MoreExecutors;
-import com.google.common.util.concurrent.Service;
-import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
@@ -22,7 +19,6 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 public class ClickHouseBatchExecutor implements ClickHouseExecutor{
     private static final long serialVersionUID = 1L;
@@ -75,10 +71,13 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor{
         this.stmt = (ClickHousePreparedStatement)connection.prepareStatement(this.sql);
 
         if(this.service == null) {
+            LOG.info("this.service is null, 启动服务...");
             this.service = new ExecuteBatchService();
             if(!this.service.isRunning()) {
                 this.service.startAsync();
             }
+        } else {
+            LOG.info("服务:" + this.service.serviceName() + "已存在, 状态: " + this.service.state());
         }
     }
 
@@ -87,8 +86,6 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor{
         this.batch = new ArrayList<>();
         this.connectionProvider = connectionProvider;
         this.stmt = (ClickHousePreparedStatement) connectionProvider.getConnection().prepareStatement(this.sql);
-
-        this.service = new ExecuteBatchService();
 
         if(this.service == null) {
             this.service = new ExecuteBatchService();
@@ -145,13 +142,14 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor{
     }
 
     private class ExecuteBatchService extends AbstractExecutionThreadService{
-        private ExecuteBatchService() {}
 
         @Override
         protected void run() throws Exception {
             while(isRunning()) {
                 synchronized(ClickHouseBatchExecutor.this) {
+                    LOG.info("wait: " + ClickHouseBatchExecutor.this.flushInterval.toMillis() + "......");
                     ClickHouseBatchExecutor.this.wait(ClickHouseBatchExecutor.this.flushInterval.toMillis());
+                    LOG.info("本次执行: " + ClickHouseBatchExecutor.this.batch.size() + " 条....");
                     if(!ClickHouseBatchExecutor.this.batch.isEmpty()) {
                         for (RowData rowData : ClickHouseBatchExecutor.this.batch) {
                             ClickHouseBatchExecutor.this.converter.toClickHouse(rowData, ClickHouseBatchExecutor.this.stmt);
@@ -161,6 +159,11 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor{
                     }
                 }
             }
+        }
+
+        @Override
+        protected String serviceName() {
+            return super.serviceName();
         }
 
         private void attemptExecuteBatch() throws Exception{

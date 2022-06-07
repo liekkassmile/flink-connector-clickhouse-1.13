@@ -64,6 +64,7 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
                                           @Nonnull ClickHouseRowConverter converter,
                                           @Nonnull ClickHousePartitioner partitioner,
                                           @Nonnull ClickHouseOptions options) {
+        LOG.info("ClickhouseShardSinkFunction init ....");
         this.connectionProvider = Preconditions.checkNotNull(connectionProvider);
         this.fieldNames = Preconditions.checkNotNull(fieldNames);
         this.converter = Preconditions.checkNotNull(converter);
@@ -94,9 +95,9 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
             String engine = this.connectionProvider.queryTableEngine(this.options.getDatabaseName(), this.options.getTableName());
             Matcher matcher = PATTERN.matcher(engine);
             if (matcher.find()) {
-                String remoteCluster = matcher.group("cluster");
-                String remoteDatabase = matcher.group("database");
-                this.remoteTable = matcher.group("table");
+                String remoteCluster = matcher.group("cluster").replace("'", "");
+                String remoteDatabase = matcher.group("database").replace("'", "");
+                this.remoteTable = matcher.group("table").replace("'", "");
                 this.shardConnections = this.connectionProvider.getShardConnections(remoteCluster, remoteDatabase);
                 this.batchCounts = new int[this.shardConnections.size()];
             } else {
@@ -148,8 +149,9 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
     private void writeRecordToOneExecutor(RowData record) throws IOException {
         int selected = this.partitioner.select(record, this.shardExecutors.size());
         this.shardExecutors.get(selected).addBatch(record);
-        this.batchCounts[selected] = this.batchCounts[selected] + 1;
+        this.batchCounts[selected] = this.batchCounts[selected]++;
         if (this.batchCounts[selected] >= this.options.getBatchSize()){
+            LOG.info("shard flush " + this.batchCounts[selected] + " 条数据!");
             flush(selected);
         }
     }
