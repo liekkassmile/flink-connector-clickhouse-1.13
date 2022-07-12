@@ -27,7 +27,7 @@ flink版本1.13
         'sink.flush-interval' = '5000',  --刷新时间,默认1s
         'sink.max-retries' = '3',  --最大重试次数
         'sink.partition-strategy' = 'hash', --插入策略hash\balanced\shuffle
-        'sink.partition-key' = 'name'
+        'sink.partition-key' = 'id'
         'sink.write-local' = 'true',--是否写入本地表
         'sink.ignore-delete' = 'true',
         -----以下为source参数-----
@@ -35,7 +35,7 @@ flink版本1.13
         'lookup.cache.ttl' = '10',
         'lookup.max-retries' = '3'
     );
-    --1、sink.partition-strategy选择hash时，需配置sink.write-local，并且sink.write-local=true写入本地表;
+    --1、sink.partition-strategy选择hash时，需配置sink.partition-key，并且sink.write-local=true写入本地表;
     --2、当sink.write-local=false时写入集群表，sink.partition-strategy无效，分发策略以来ck集群表配置;
 
     CREATE TABLE test.lbs (
