@@ -29,7 +29,7 @@ public class AppTest {
                 "    'password' = '',\n" +
                 "    'database-name' = 'glab',        /* ClickHouse 数据库名，默认为 default */\n" +
                 "    'table-name' = 'ck_test',      /* ClickHouse 数据表名 */\n" +
-                "    'sink.batch-size' = '100',         /* batch 大小 */\n" +
+                "    'sink.batch-size' = '20',         /* batch 大小 */\n" +
                 "    'sink.flush-interval' = '1000',     /* flush 时间间隔 */\n" +
                 "    'sink.max-retries' = '2',           /* 最大重试次数 */\n" +
                 "    'sink.partition-strategy' = 'balanced', /* hash | shuffle | balanced */\n" +

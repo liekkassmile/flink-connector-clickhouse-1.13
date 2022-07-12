@@ -8,7 +8,9 @@ import java.math.BigInteger;
  */
 public class Test00 {
     public static void main(String[] args) {
-        BigInteger a = new BigInteger("12321321313");
-        long l = a.longValue();
+        String a = "a";
+        String replace = a.replace("'", "");
+        System.out.println(replace);
+
     }
 }

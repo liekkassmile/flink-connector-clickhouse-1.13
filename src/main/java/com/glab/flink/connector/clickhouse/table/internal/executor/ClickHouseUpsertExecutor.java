@@ -4,7 +4,6 @@ import com.glab.flink.connector.clickhouse.table.internal.connection.ClickHouseC
 import com.glab.flink.connector.clickhouse.table.internal.converter.ClickHouseRowConverter;
 import com.glab.flink.connector.clickhouse.table.internal.options.ClickHouseOptions;
 import com.google.common.util.concurrent.AbstractExecutionThreadService;
-import org.apache.commons.io.IOExceptionWithCause;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.table.data.RowData;
 import org.slf4j.Logger;
@@ -44,7 +43,7 @@ public class ClickHouseUpsertExecutor implements ClickHouseExecutor{
 
     private final transient List<RowData> deleteBatch;
 
-    private transient ExecuteBatchService service;
+    private transient ClickHouseUpsertExecutor.ExecuteBatchService service;
 
     private final Duration flushInterval;
 
@@ -68,7 +67,7 @@ public class ClickHouseUpsertExecutor implements ClickHouseExecutor{
         this.insertStmt = (ClickHousePreparedStatement)connection.prepareStatement(this.insertSql);
         this.updateStmt = (ClickHousePreparedStatement)connection.prepareStatement(this.updateSql);
         this.deleteStmt = (ClickHousePreparedStatement)connection.prepareStatement(this.deleteSql);
-        this.service = new ExecuteBatchService();
+        this.service = new ClickHouseUpsertExecutor.ExecuteBatchService();
         this.service.startAsync();
     }
 
@@ -80,14 +79,16 @@ public class ClickHouseUpsertExecutor implements ClickHouseExecutor{
     public void setRuntimeContext(RuntimeContext context) {}
 
     @Override
-    public void addBatch(RowData rowData) throws IOException {
+    public synchronized void addBatch(RowData rowData) throws IOException {
         switch (rowData.getRowKind()) {
             case INSERT:
                 this.insertBatch.add(rowData);
+                break;
             case DELETE:
                 this.deleteBatch.add(rowData);
             case UPDATE_AFTER:
                 this.updateBatch.add(rowData);
+                break;
             case UPDATE_BEFORE:
                 return;
         }
@@ -121,8 +122,8 @@ public class ClickHouseUpsertExecutor implements ClickHouseExecutor{
     }
 
     @Override
-    public String getState() {
-        return ClickHouseUpsertExecutor.this.service.state().toString();
+    public List<RowData> getBatch() {
+        return null;
     }
 
     private class ExecuteBatchService extends AbstractExecutionThreadService {

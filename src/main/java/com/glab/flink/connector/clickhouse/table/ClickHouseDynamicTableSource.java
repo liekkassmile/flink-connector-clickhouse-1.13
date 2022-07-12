@@ -5,11 +5,11 @@ import com.glab.flink.connector.clickhouse.table.internal.dialect.ClickHouseDial
 import com.glab.flink.connector.clickhouse.table.internal.options.ClickHouseOptions;
 import org.apache.flink.connector.jdbc.internal.options.JdbcLookupOptions;
 import org.apache.flink.connector.jdbc.table.JdbcRowDataInputFormat;
-import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.catalog.ResolvedSchema;
 import org.apache.flink.table.connector.ChangelogMode;
 import org.apache.flink.table.connector.source.*;
 import org.apache.flink.table.connector.source.abilities.SupportsLimitPushDown;
+import org.apache.flink.table.types.DataType;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.types.RowKind;
 import org.apache.flink.util.Preconditions;
@@ -19,16 +19,17 @@ import org.apache.http.client.utils.URIBuilder;
  * @author lrh
  * @date 2021/6/21
  */
-public class ClickHouseDynamicTableSource implements ScanTableSource, LookupTableSource {
+public class ClickHouseDynamicTableSource implements ScanTableSource, LookupTableSource, SupportsLimitPushDown {
 
-    private final TableSchema tableSchema;
+    private final ResolvedSchema resolvedSchema;
 
     private final ClickHouseOptions options;
 
     private final JdbcLookupOptions lookupOptions;
+    private long limit = -1;
 
-    public ClickHouseDynamicTableSource(TableSchema tableSchema, ClickHouseOptions options, JdbcLookupOptions lookupOptions) {
-        this.tableSchema = tableSchema;
+    public ClickHouseDynamicTableSource(ResolvedSchema resolvedSchema, ClickHouseOptions options, JdbcLookupOptions lookupOptions) {
+        this.resolvedSchema = resolvedSchema;
         this.options = options;
         this.lookupOptions = lookupOptions;
     }
@@ -39,12 +40,14 @@ public class ClickHouseDynamicTableSource implements ScanTableSource, LookupTabl
         for(int i = 0; i <keyNames.length; i++) {
             int[] innerKeyArr = lookupContext.getKeys()[i];
             Preconditions.checkArgument(innerKeyArr.length == 1, "JDBC only support non-nested look up keys");
-            keyNames[i] = tableSchema.getFieldNames()[innerKeyArr[0]];
+            keyNames[i] = resolvedSchema.getColumnNames().get(innerKeyArr[0]);
         }
 
-        final RowType rowType = (RowType)tableSchema.toRowDataType().getLogicalType();
+        final RowType rowType = (RowType)resolvedSchema.toSourceRowDataType().getLogicalType();
         ClickHouseRowDataLookupFunction lookupFunction =
-                new ClickHouseRowDataLookupFunction(options, lookupOptions, tableSchema.getFieldNames(), tableSchema.getFieldDataTypes(), keyNames, rowType);
+                new ClickHouseRowDataLookupFunction(options, lookupOptions,
+                        resolvedSchema.getColumnNames().stream().toArray(String[]::new),
+                        resolvedSchema.getColumnDataTypes().stream().toArray(DataType[]::new), keyNames, rowType);
         return TableFunctionProvider.of(lookupFunction);
     }
 
@@ -61,11 +64,14 @@ public class ClickHouseDynamicTableSource implements ScanTableSource, LookupTabl
     @Override
     public ScanRuntimeProvider getScanRuntimeProvider(ScanContext scanContext){
         ClickHouseDialect dialect = (ClickHouseDialect)options.getDialect();
-        String query = dialect.getSelectFromStatement(options.getTableName(), tableSchema.getFieldNames(), new String[0]);
+        String query = dialect.getSelectFromStatement(options.getTableName(), resolvedSchema.getColumnNames().stream().toArray(String[]::new), new String[0]);
 
-        //1.12不支持SupportsLimitPushDown，13开始支持，数据太多直接卡死了
+        //1.13支持SupportsLimitPushDown，不然数据太大直接卡死了
+        if(limit >= 0) {
+            query = String.format("%s %s", query, dialect.getLimitClause(limit));
+        }
 
-        RowType rowType = (RowType)tableSchema.toRowDataType().getLogicalType();
+        RowType rowType = (RowType)resolvedSchema.toSourceRowDataType().getLogicalType();
         getJdbcUrl(options.getUrl(), options.getDatabaseName());
         JdbcRowDataInputFormat build = JdbcRowDataInputFormat.builder()
                 .setDrivername(options.getDialect().defaultDriverName().get())
@@ -74,14 +80,15 @@ public class ClickHouseDynamicTableSource implements ScanTableSource, LookupTabl
                 .setPassword(options.getPassword().orElse(null))
                 .setQuery(query)
                 .setRowConverter(dialect.getRowConverter(rowType))
-                .setRowDataTypeInfo(scanContext.createTypeInformation(tableSchema.toRowDataType()))
+                .setRowDataTypeInfo(scanContext.createTypeInformation(resolvedSchema.toSourceRowDataType()))
                 .build();
         return InputFormatProvider.of(build);
     }
 
     @Override
     public DynamicTableSource copy() {
-        return new ClickHouseDynamicTableSource(tableSchema, options, lookupOptions);
+        ClickHouseDynamicTableSource tableSource = new ClickHouseDynamicTableSource(resolvedSchema, options, lookupOptions);
+        return tableSource;
     }
 
     @Override
@@ -95,5 +102,10 @@ public class ClickHouseDynamicTableSource implements ScanTableSource, LookupTabl
         }catch (Exception e) {
             throw new RuntimeException("get JDBC url failed.", e);
         }
+    }
+
+    @Override
+    public void applyLimit(long limit) {
+        this.limit = limit;
     }
 }

@@ -87,7 +87,7 @@ public class ClickHouseRowConverter implements JdbcRowConverter {
         return statement;
     }
 
-    private SerializationConverter createToClickHouseConverter(LogicalType type) {
+    protected SerializationConverter createToClickHouseConverter(LogicalType type) {
         int timestampPrecision;
         int decimalPrecision;
         int decimalScale;
@@ -129,7 +129,7 @@ public class ClickHouseRowConverter implements JdbcRowConverter {
         throw new UnsupportedOperationException("Unsupported type:" + type);
     }
 
-    private JDBCSerializationConverter createToExternalConverter(LogicalType type) {
+    protected JDBCSerializationConverter createToExternalConverter(LogicalType type) {
         int timestampPrecision;
         int decimalPrecision;
         int decimalScale;
@@ -171,7 +171,7 @@ public class ClickHouseRowConverter implements JdbcRowConverter {
         throw new UnsupportedOperationException("Unsupported type:" + type);
     }
 
-    private DeserializationConverter createToFlinkConverter(LogicalType type) {
+    protected DeserializationConverter createToFlinkConverter(LogicalType type) {
         int precision;
         int scale;
         switch (type.getTypeRoot()) {

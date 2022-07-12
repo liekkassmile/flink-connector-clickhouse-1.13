@@ -7,7 +7,6 @@ import org.apache.flink.configuration.ConfigOptions;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.connector.jdbc.internal.options.JdbcLookupOptions;
 import org.apache.flink.table.api.TableSchema;
-import org.apache.flink.table.catalog.CatalogTable;
 import org.apache.flink.table.catalog.ResolvedCatalogTable;
 import org.apache.flink.table.catalog.ResolvedSchema;
 import org.apache.flink.table.connector.sink.DynamicTableSink;
@@ -112,13 +111,9 @@ public class ClickHouseDynamicTableFactory implements DynamicTableSinkFactory, D
         }
 
         //带New的使用1.13API,不带的用12的
-        if(context.getCatalogTable() instanceof ResolvedCatalogTable) {
-            ResolvedSchema resolvedSchema = context.getCatalogTable().getResolvedSchema();
-            return new NewClickHouseDynamicTableSource(resolvedSchema, getOptions(config), getJdbcLookupOptions(config));
-        } else {
-            TableSchema physicalSchema = TableSchemaUtils.getPhysicalSchema(context.getCatalogTable().getSchema());
-            return new ClickHouseDynamicTableSource(physicalSchema, getOptions(config), getJdbcLookupOptions(config));
-        }
+        ResolvedSchema resolvedSchema = context.getCatalogTable().getResolvedSchema();
+        return new ClickHouseDynamicTableSource(resolvedSchema, getOptions(config), getJdbcLookupOptions(config));
+
     }
 
     @Override
@@ -133,13 +128,8 @@ public class ClickHouseDynamicTableFactory implements DynamicTableSinkFactory, D
         }
 
         //带New的使用1.13API,不带的用12的
-        if(context.getCatalogTable() instanceof ResolvedCatalogTable) {
-            ResolvedSchema resolvedSchema = context.getCatalogTable().getResolvedSchema();
-            return new NewClickHouseDynamicTableSink(resolvedSchema, getOptions(config));
-        }else {
-            TableSchema physicalSchema = TableSchemaUtils.getPhysicalSchema(context.getCatalogTable().getSchema());
-            return new ClickHouseDynamicTableSink(physicalSchema, getOptions(config));
-        }
+        ResolvedSchema resolvedSchema = context.getCatalogTable().getResolvedSchema();
+        return new ClickHouseDynamicTableSink(resolvedSchema, getOptions(config));
     }
 
     @Override
@@ -175,7 +165,7 @@ public class ClickHouseDynamicTableFactory implements DynamicTableSinkFactory, D
     }
 
     private void validateConfigOptions(ReadableConfig config) throws Exception{
-        String partitionStrategy = (String)config.get(SINK_PARTITION_STRATEGY);
+        String partitionStrategy = config.get(SINK_PARTITION_STRATEGY);
         if (!Arrays.asList(new String[] { "hash", "balanced", "shuffle" }).contains(partitionStrategy))
             throw new IllegalArgumentException("Unknown sink.partition-strategy `" + partitionStrategy + "`");
         if (partitionStrategy.equals("hash") && !config.getOptional(SINK_PARTITION_KEY).isPresent())

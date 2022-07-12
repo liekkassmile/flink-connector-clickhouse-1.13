@@ -68,6 +68,7 @@ public class ClickHouseConnectionProvider implements Serializable {
         ClickHouseConnection conn;
         LOG.info("connection to {}", url);
 
+
         try {
             Class.forName(CLICKHOUSE_DRIVER_NAME);
         } catch (ClassNotFoundException e) {
@@ -102,21 +103,26 @@ public class ClickHouseConnectionProvider implements Serializable {
      */
     public synchronized List<ClickHouseConnection> getShardConnections(String remoteCluster, String remoteDataBase) throws SQLException{
         if(this.shardConnections == null) {
-            ClickHouseConnection conn = getConnection();
+            ClickHouseConnection conn = this.getConnection();
             String shardSql = String.format("SELECT shard_num, host_address, port FROM system.clusters WHERE cluster = '%s'", remoteCluster);
             //查询ck集群各个分片信息
             PreparedStatement stmt = conn.prepareStatement(shardSql);
 
-            try (ResultSet resultSet = stmt.executeQuery()){
+            ResultSet rs = stmt.executeQuery();
+            try {
                 this.shardConnections = new ArrayList<>();
-                while(resultSet.next()) {
-                    String host_address = resultSet.getString("host_address");
-                    int port = getActualHttpPort(host_address, resultSet.getInt("port"));
+                while(rs.next()) {
+                    String host_address = rs.getString("host_address");
+                    int port = getActualHttpPort(host_address, rs.getInt("port"));
                     String url = "clickhouse://" + host_address + ":" + port;
                     this.shardConnections.add(createConnection(url, remoteDataBase));
                 }
             } catch (Exception e) {
                 e.printStackTrace();
+            } finally {
+                if(rs != null) {
+                    rs.close();
+                }
             }
 
             if(this.shardConnections.isEmpty()) {

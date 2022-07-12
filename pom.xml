@@ -6,13 +6,13 @@
 
   <groupId>com.glab</groupId>
   <artifactId>flink-connector-clickhouse</artifactId>
-  <version>1.13.0</version>
+  <version>22.07.11</version>
 
-  <name>flink-connector-clickhouse-1.13</name>
+  <name>flink-connector-clickhouse</name>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <flink.version>1.13.0</flink.version>
+    <flink.version>1.13.2</flink.version>
     <scala.binary.version>2.11</scala.binary.version>
     <clickhouse-jdbc-version>0.2.4</clickhouse-jdbc-version>
   </properties>
@@ -24,12 +24,8 @@
       <groupId>ru.yandex.clickhouse</groupId>
       <artifactId>clickhouse-jdbc</artifactId>
       <version>${clickhouse-jdbc-version}</version>
+      <scope>provided</scope>
     </dependency>
-<!--    <dependency>
-      <groupId>mysql</groupId>
-      <artifactId>mysql-connector-java</artifactId>
-      <version>8.0.18</version>
-    </dependency>-->
     <dependency>
       <groupId>org.apache.httpcomponents</groupId>
       <artifactId>httpclient</artifactId>

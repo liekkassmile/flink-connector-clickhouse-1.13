@@ -14,7 +14,6 @@ public class HashPartitioner implements ClickHousePartitioner {
     }
 
     public int select(RowData record, int numShards) {
-        //return Objects.hashCode(this.getter.getFieldOrNull(record)) % numShards;
         return Math.abs(Objects.hashCode(this.getter.getFieldOrNull(record)) % numShards);
     }
 }

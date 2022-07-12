@@ -11,6 +11,7 @@ import ru.yandex.clickhouse.ClickHouseConnection;
 import java.io.IOException;
 import java.io.Serializable;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Optional;
 
 public interface ClickHouseExecutor extends Serializable {
@@ -26,10 +27,10 @@ public interface ClickHouseExecutor extends Serializable {
 
     void closeStatement() throws SQLException;
 
-    String getState();
+    List<RowData> getBatch();
 
     static ClickHouseUpsertExecutor createUpsertExecutor(String tableName,
-                                                         String[] fieldNames,
+                                                         List<String> fieldNames,
                                                          String[] keyFields,
                                                          ClickHouseRowConverter converter,
                                                          ClickHouseOptions options) {

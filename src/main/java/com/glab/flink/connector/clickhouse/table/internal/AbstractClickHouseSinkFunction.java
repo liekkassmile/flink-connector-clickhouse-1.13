@@ -4,10 +4,10 @@ import com.glab.flink.connector.clickhouse.table.internal.connection.ClickHouseC
 import com.glab.flink.connector.clickhouse.table.internal.converter.ClickHouseRowConverter;
 import com.glab.flink.connector.clickhouse.table.internal.executor.ClickHouseBatchExecutor;
 import com.glab.flink.connector.clickhouse.table.internal.executor.ClickHouseExecutor;
-import com.glab.flink.connector.clickhouse.table.internal.executor.ClickHouseUpsertExecutor;
 import com.glab.flink.connector.clickhouse.table.internal.options.ClickHouseOptions;
 import com.glab.flink.connector.clickhouse.table.internal.partitioner.ClickHousePartitioner;
 import org.apache.flink.api.common.typeinfo.TypeInformation;;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.flink.table.catalog.UniqueConstraint;
 import org.apache.flink.table.data.RowData;
@@ -26,26 +26,32 @@ import java.util.Optional;
 public abstract class AbstractClickHouseSinkFunction extends RichSinkFunction<RowData> implements Flushable {
     private static final long serialVersionUID = 1L;
 
-    public static class Builder{
-        private static final Logger LOG = LoggerFactory.getLogger(Builder.class);
+    public AbstractClickHouseSinkFunction(){}
 
-        private DataType[] fieldDataTypes;
+    public void configure(Configuration param){}
+
+    public static class Builder{
+        private static final Logger LOG = LoggerFactory.getLogger(AbstractClickHouseSinkFunction.Builder.class);
+
+        private List<DataType> fieldDataTypes;
         private ClickHouseOptions options;
-        private String[] fieldNames;
+        private List<String> fieldNames;
         private Optional<UniqueConstraint> primaryKey;
         private TypeInformation<RowData> rowDataTypeInformation;
+
+        public Builder(){}
 
         public Builder withOptions(ClickHouseOptions options) {
             this.options = options;
             return this;
         }
 
-        public Builder withFieldDataTypes(DataType[] fieldDataTypes) {
+        public Builder withFieldDataTypes(List<DataType> fieldDataTypes) {
             this.fieldDataTypes = fieldDataTypes;
             return this;
         }
 
-        public Builder withFieldNames(String[] fieldNames) {
+        public Builder withFieldNames(List<String> fieldNames) {
             this.fieldNames = fieldNames;
             return this;
         }
@@ -66,7 +72,7 @@ public abstract class AbstractClickHouseSinkFunction extends RichSinkFunction<Ro
             Preconditions.checkNotNull(this.options);
             Preconditions.checkNotNull(this.fieldNames);
             Preconditions.checkNotNull(this.fieldDataTypes);
-            LogicalType[] logicalTypes = Arrays.stream(this.fieldDataTypes).map(DataType::getLogicalType).toArray(a -> new LogicalType[a]);
+            LogicalType[] logicalTypes = fieldDataTypes.stream().map(DataType::getLogicalType).toArray(a -> new LogicalType[a]);
             ClickHouseRowConverter converter = new ClickHouseRowConverter(RowType.of(logicalTypes));
             if (this.primaryKey.isPresent()) {
                 LOG.warn("If primary key is specified, connector will be in UPSERT mode.");
@@ -74,10 +80,7 @@ public abstract class AbstractClickHouseSinkFunction extends RichSinkFunction<Ro
             }
 
             //如果是写入本地表
-            if (this.options.getWriteLocal()){
-                return createShardSinkFunction(logicalTypes, converter);
-            }
-            return createBatchSinkFunction(converter);
+            return this.options.getWriteLocal() ? this.createShardSinkFunction(logicalTypes, converter) : createBatchSinkFunction(converter);
         }
 
         /**
@@ -91,17 +94,18 @@ public abstract class AbstractClickHouseSinkFunction extends RichSinkFunction<Ro
                 executor = ClickHouseExecutor.createUpsertExecutor(
                                 this.options.getTableName(),
                                 this.fieldNames,
-                                listToStringArray(((UniqueConstraint)this.primaryKey.get()).getColumns()),
+                                listToStringArray((this.primaryKey.get()).getColumns()),
                                 converter,
                                 this.options);
             } else {
                 String sql = ClickHouseStatementFactory.getInsertIntoStatement(this.options.getTableName(), this.fieldNames);
-                executor = new ClickHouseBatchExecutor(sql,
-                        converter,
-                        this.options.getFlushInterval(),
-                        this.options.getBatchSize(),
-                        this.options.getMaxRetries(),
-                        this.rowDataTypeInformation);
+                executor = new ClickHouseBatchExecutor(
+                                sql,
+                                converter,
+                                this.options.getFlushInterval(),
+                                this.options.getBatchSize(),
+                                this.options.getMaxRetries(),
+                                this.rowDataTypeInformation);
             }
             return new ClickHouseBatchSinkFunction(new ClickHouseConnectionProvider(this.options), executor, this.options);
         }
@@ -125,7 +129,7 @@ public abstract class AbstractClickHouseSinkFunction extends RichSinkFunction<Ro
                     partitioner = ClickHousePartitioner.createShuffle();
                     break;
                 case "hash":
-                    index = Arrays.asList(this.fieldNames).indexOf(this.options.getPartitionKey());
+                    index = fieldNames.indexOf(this.options.getPartitionKey());
                     if (index == -1)
                         throw new IllegalArgumentException("Partition key `" + this.options
                                 .getPartitionKey() + "` not found in table schema");
@@ -137,7 +141,7 @@ public abstract class AbstractClickHouseSinkFunction extends RichSinkFunction<Ro
                             .getPartitionStrategy() + "`");
             }
             if (this.primaryKey.isPresent() && !this.options.getIgnoreDelete()) {
-                keyFields = Optional.of(listToStringArray(((UniqueConstraint)this.primaryKey.get()).getColumns()));
+                keyFields = Optional.of(listToStringArray((this.primaryKey.get()).getColumns()));
             } else {
                 keyFields = Optional.empty();
             }

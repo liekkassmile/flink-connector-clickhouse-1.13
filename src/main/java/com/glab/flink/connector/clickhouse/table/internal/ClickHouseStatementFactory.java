@@ -1,18 +1,21 @@
 package com.glab.flink.connector.clickhouse.table.internal;
 
+import java.io.Serializable;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-public class ClickHouseStatementFactory {
-    public static String getInsertIntoStatement(String tableName, String[] fieldNames) {
-        String columns = Arrays.stream(fieldNames).map(ClickHouseStatementFactory::quoteIdentifier).collect(Collectors.joining(", "));
-        String placeholders = Arrays.stream(fieldNames).map(f -> "?").collect(Collectors.joining(", "));
+public class ClickHouseStatementFactory implements Serializable {
+    private static final long serialVersionUID = 1L;
+    public static String getInsertIntoStatement(String tableName, List<String> fieldNames) {
+        String columns = fieldNames.stream().map(ClickHouseStatementFactory::quoteIdentifier).collect(Collectors.joining(", "));
+        String placeholders = fieldNames.stream().map(f -> "?").collect(Collectors.joining(", "));
         return "INSERT INTO " + quoteIdentifier(tableName) + "(" + columns + ") VALUES (" + placeholders + ")";
     }
 
-    public static String getUpdateStatement(String tableName, String[] fieldNames, String[] conditionFields, Optional<String> clusterName) {
-        String setClause = Arrays.stream(fieldNames).map(f -> quoteIdentifier(f) + "= ?").collect(Collectors.joining(", "));
+    public static String getUpdateStatement(String tableName, List<String> fieldNames, String[] conditionFields, Optional<String> clusterName) {
+        String setClause = fieldNames.stream().map(f -> quoteIdentifier(f) + "= ?").collect(Collectors.joining(", "));
         String conditionClause = Arrays.stream(conditionFields).map(f -> quoteIdentifier(f) + "= ?").collect(Collectors.joining(" AND "));
         String onClusterClause = "";
         if(clusterName.isPresent()) {

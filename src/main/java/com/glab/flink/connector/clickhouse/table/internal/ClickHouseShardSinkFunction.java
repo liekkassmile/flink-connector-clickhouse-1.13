@@ -4,12 +4,13 @@ import com.glab.flink.connector.clickhouse.table.internal.connection.ClickHouseC
 import com.glab.flink.connector.clickhouse.table.internal.converter.ClickHouseRowConverter;
 import com.glab.flink.connector.clickhouse.table.internal.executor.ClickHouseBatchExecutor;
 import com.glab.flink.connector.clickhouse.table.internal.executor.ClickHouseExecutor;
-import com.glab.flink.connector.clickhouse.table.internal.executor.ClickHouseUpsertExecutor;
 import com.glab.flink.connector.clickhouse.table.internal.options.ClickHouseOptions;
 import com.glab.flink.connector.clickhouse.table.internal.partitioner.ClickHousePartitioner;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.table.data.BoxedWrapperRowData;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
+import org.apache.flink.types.Row;
 import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,7 +20,6 @@ import javax.annotation.Nonnull;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -40,7 +40,7 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
 
     private final ClickHouseOptions options;
 
-    private final String[] fieldNames;
+    private final List<String> fieldNames;
 
     private transient boolean closed = false;
 
@@ -59,12 +59,12 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
     private final boolean ignoreDelete;
 
     protected ClickHouseShardSinkFunction(@Nonnull ClickHouseConnectionProvider connectionProvider,
-                                          @Nonnull String[] fieldNames,
+                                          @Nonnull List<String> fieldNames,
                                           @Nonnull Optional<String[]> keyFields,
                                           @Nonnull ClickHouseRowConverter converter,
                                           @Nonnull ClickHousePartitioner partitioner,
                                           @Nonnull ClickHouseOptions options) {
-        LOG.info("ClickhouseShardSinkFunction init ....");
+        LOG.info("ClickHouseShardSinkFunction init ....");
         this.connectionProvider = Preconditions.checkNotNull(connectionProvider);
         this.fieldNames = Preconditions.checkNotNull(fieldNames);
         this.converter = Preconditions.checkNotNull(converter);
@@ -110,8 +110,10 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
 
     private void initializeExecutors() throws SQLException {
         String sql = ClickHouseStatementFactory.getInsertIntoStatement(this.remoteTable, this.fieldNames);
+
         for (int i = 0; i < this.shardConnections.size(); i++) {
             ClickHouseExecutor executor;
+
             if (this.keyFields.length > 0) {
                 executor = ClickHouseExecutor.createUpsertExecutor(this.remoteTable, this.fieldNames, this.keyFields, this.converter, this.options);
             } else {
@@ -123,52 +125,69 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
     }
 
     @Override
-    public void invoke(RowData record, Context context) throws IOException {
+    public void invoke(RowData record, Context context) throws Exception {
         switch (record.getRowKind()) {
             case INSERT:
                 writeRecordToOneExecutor(record);
-                return;
+                break;
             case UPDATE_AFTER:
                 if (this.ignoreDelete) {
                     writeRecordToOneExecutor(record);
                 } else {
                     writeRecordToAllExecutors(record);
                 }
-                return;
+                break;
             case DELETE:
                 if (!this.ignoreDelete)
                     writeRecordToAllExecutors(record);
-                return;
             case UPDATE_BEFORE:
-                return;
+                break;
+            default:
+                throw new UnsupportedOperationException(
+                        String.format("Unknown row kind, the supported row kinds is: INSERT, UPDATE_BEFORE, UPDATE_AFTER, DELETE, but get: %s.", new Object[] { record.getRowKind() }));
         }
-        throw new UnsupportedOperationException(
-                String.format("Unknown row kind, the supported row kinds is: INSERT, UPDATE_BEFORE, UPDATE_AFTER, DELETE, but get: %s.", new Object[] { record.getRowKind() }));
-    }
+   }
 
-    private void writeRecordToOneExecutor(RowData record) throws IOException {
-        int selected = this.partitioner.select(record, this.shardExecutors.size());
+    private void writeRecordToOneExecutor(RowData rowData) throws Exception {
+        int selected = this.partitioner.select(rowData, this.shardExecutors.size());
+
+        RowData record = genericRowData(rowData);
         this.shardExecutors.get(selected).addBatch(record);
         this.batchCounts[selected] = this.batchCounts[selected]++;
         if (this.batchCounts[selected] >= this.options.getBatchSize()){
-            LOG.info("shard flush " + this.batchCounts[selected] + " 条数据!");
-            flush(selected);
+            LOG.info("shard flush " + this.batchCounts[selected] + " 条数据!!!");
+            this.flush(selected);
         }
     }
 
     private void writeRecordToAllExecutors(RowData record) throws IOException {
-        for (int i = 0; i < this.shardExecutors.size(); i++) {
+        for (int i = 0; i < this.shardExecutors.size(); ++i) {
             this.shardExecutors.get(i).addBatch(record);
             this.batchCounts[i] = this.batchCounts[i] + 1;
             if (this.batchCounts[i] >= this.options.getBatchSize())
-                flush(i);
+                this.flush(i);
         }
+    }
+
+    /**
+     * 生成一个新对象
+     * @param record
+     * @return
+     * @throws Exception
+     */
+    public RowData genericRowData(RowData record) throws Exception{
+        BoxedWrapperRowData bwRowdata = new BoxedWrapperRowData(record.getArity());
+        bwRowdata.setRowKind(record.getRowKind());
+        for(int i = 0; i < record.getArity(); i++) {
+            bwRowdata.setNonPrimitiveValue(i, record.getString(i));
+        }
+        return bwRowdata;
     }
 
     @Override
     public void flush() throws IOException {
-        for (int i = 0; i < this.shardExecutors.size(); i++) {
-            flush(i);
+        for (int i = 0; i < this.shardExecutors.size(); ++i) {
+            this.flush(i);
         }
     }
 
@@ -182,18 +201,18 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
         if (!this.closed) {
             this.closed = true;
             try {
-                flush();
+                this.flush();
             } catch (Exception e) {
                 LOG.warn("Writing records to ClickHouse failed.", e);
             }
-            closeConnection();
+            this.closeConnection();
         }
     }
 
     private void closeConnection() {
         if (this.connection != null)
             try {
-                for (int i = 0; i < this.shardExecutors.size(); i++){
+                for (int i = 0; i < this.shardExecutors.size(); ++i){
                     this.shardExecutors.get(i).closeStatement();
                 }
                 this.connectionProvider.closeConnection();
