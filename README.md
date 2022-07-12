@@ -2,7 +2,7 @@ flink-connector-clickhouse
 
 flink版本1.13
 
-支持sink和source
+支持sink和source，支持实时数据写入，支持离线数据写入
 
     DROP TABLE if exists test.lbs_ck;
     CREATE TABLE if not exists test.lbs_ck (
@@ -23,17 +23,20 @@ flink版本1.13
         'database-name' = 'test', 
         'table-name' = 'lbs',  
         -----以下为sink参数------
-        'sink.batch-size' = '1000',  -- 批量插入数量
-        'sink.flush-interval' = '',  --刷新时间,默认1s
+        'sink.batch-size' = '1000000',  -- 批量插入数量
+        'sink.flush-interval' = '5000',  --刷新时间,默认1s
         'sink.max-retries' = '3',  --最大重试次数
-        'sink.partition-strategy' = 'balanced', --插入策略hash\balanced\shuffle
-        --'sink.write-local' = 'false',--是否写入本地表
+        'sink.partition-strategy' = 'hash', --插入策略hash\balanced\shuffle
+        'sink.partition-key' = 'name'
+        'sink.write-local' = 'true',--是否写入本地表
         'sink.ignore-delete' = 'true',
         -----以下为source参数-----
         'lookup.cache.max-rows' = '100',
         'lookup.cache.ttl' = '10',
         'lookup.max-retries' = '3'
     );
+    --1、sink.partition-strategy选择hash时，需配置sink.write-local，并且sink.write-local=true写入本地表;
+    --2、当sink.write-local=false时写入集群表，sink.partition-strategy无效，分发策略以来ck集群表配置;
 
     CREATE TABLE test.lbs (
         ts BIGINT,
