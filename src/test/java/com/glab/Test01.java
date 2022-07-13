@@ -27,7 +27,7 @@ public class Test01 {
                 "    date_partition VARCHAR\n" +
                 ") WITH (\n" +
                 "    'connector' = 'clickhouse',\n" +
-                "    'url' = 'clickhouse://192.168.8.94:8123',\n" +
+                "    'url' = 'clickhouse://xxxx:8123',\n" +
                 "    'username' = '',\n" +
                 "    'password' = '',\n" +
                 "    'database-name' = 'glab',        /* ClickHouse 数据库名，默认为 default */\n" +
@@ -47,7 +47,7 @@ public class Test01 {
                 "    more VARCHAR\n" +
                 ") WITH (\n" +
                 "    'connector' = 'clickhouse',\n" +
-                "    'url' = 'clickhouse://192.168.8.94:8123',\n" +
+                "    'url' = 'clickhouse://xxxx:8123',\n" +
                 "    'username' = '',\n" +
                 "    'password' = '',\n" +
                 "    'database-name' = 'glab',        /* ClickHouse 数据库名，默认为 default */\n" +

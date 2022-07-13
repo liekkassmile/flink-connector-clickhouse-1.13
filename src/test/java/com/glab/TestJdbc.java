@@ -25,7 +25,7 @@ public class TestJdbc {
                 "    ts STRING\n" +
                 ") WITH (\n" +
                 "    'connector' = 'jdbc',\n" +
-                "    'url' = 'jdbc:mysql://192.168.8.90:3306/allway',\n" +
+                "    'url' = 'jdbc:mysql://xxxx:3306/allway',\n" +
                 "    'username' = 'root',\n" +
                 "    'password' = '',\n" +
                 "    'table-name' = 'testdata'      /* ClickHouse 数据表名 */\n" +

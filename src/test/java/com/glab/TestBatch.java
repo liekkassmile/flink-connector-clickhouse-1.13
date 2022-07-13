@@ -33,9 +33,9 @@ public class TestBatch {
                 "    more String\n" +
                 ") WITH (\n" +
                 "    'connector' = 'clickhouse',\n" +
-                "    'url' = 'clickhouse://192.168.8.94:8123',\n" +
-                "    'username' = 'default',\n" +
-                "    'password' = 'gexin2011',\n" +
+                "    'url' = '',\n" +
+                "    'username' = '',\n" +
+                "    'password' = '',\n" +
                 "    'database-name' = 'glab',        /* ClickHouse 数据库名，默认为 default */\n" +
                 "    'table-name' = 'ck_test',      /* ClickHouse 数据表名 */\n" +
                 "    'sink.batch-size' = '1000',         /* batch 大小 */\n" +
