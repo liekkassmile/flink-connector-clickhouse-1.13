@@ -36,6 +36,7 @@ flink版本1.13
         'lookup.max-retries' = '3'
     );
     --1、sink.partition-strategy选择hash时，需配置sink.partition-key，并且sink.write-local=true写入本地表;
+    hash函数使用murmur3_32，与官方murmurHash3_32()集群表分发策略保持一致
     --2、当sink.write-local=false时写入集群表，sink.partition-strategy无效，分发策略以来ck集群表配置;
 
     CREATE TABLE test.lbs (
