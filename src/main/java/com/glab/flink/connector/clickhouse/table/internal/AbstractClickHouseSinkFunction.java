@@ -145,7 +145,7 @@ public abstract class AbstractClickHouseSinkFunction extends RichSinkFunction<Ro
             } else {
                 keyFields = Optional.empty();
             }
-            return new ClickHouseShardSinkFunction(new ClickHouseConnectionProvider(this.options), this.fieldNames, keyFields, converter, partitioner, this.options);
+            return new ClickHouseShardSinkFunction(new ClickHouseConnectionProvider(this.options), logicalTypes, this.fieldNames, keyFields, converter, partitioner, this.options);
         }
 
         private String[] listToStringArray(List<String> lists) {
