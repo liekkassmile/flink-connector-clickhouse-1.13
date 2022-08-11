@@ -24,7 +24,7 @@ public class AppTest {
                 "    more VARCHAR\n" +
                 ") WITH (\n" +
                 "    'connector' = 'clickhouse',\n" +
-                "    'url' = 'clickhouse://192.168.8.94:8123',\n" +
+                "    'url' = 'clickhouse://*****:8123',\n" +
                 "    'username' = '',\n" +
                 "    'password' = '',\n" +
                 "    'database-name' = 'glab',        /* ClickHouse 数据库名，默认为 default */\n" +
