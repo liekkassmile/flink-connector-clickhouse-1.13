@@ -53,7 +53,7 @@ public class TestKafka {
                 "\t'topic' = 'ck_test',\n" +
                 "\t'scan.startup.mode' = 'latest-offset',\n" +
                 "\t'properties.group.id' = 'ck_test1',\n" +
-                "\t'properties.bootstrap.servers' = 'ga-kafka1:9092,ga-kafka2:9092',\n" +
+                "\t'properties.bootstrap.servers' = '***:9092,***:9092',\n" +
                 "\t'format' = 'csv',\n" +
                 "\t'csv.ignore-parse-errors' = 'true',\n" +
                 "\t'csv.field-delimiter' = '|',\n" +
