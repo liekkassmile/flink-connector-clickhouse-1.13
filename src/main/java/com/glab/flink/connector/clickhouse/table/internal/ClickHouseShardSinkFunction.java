@@ -10,6 +10,8 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.table.data.BoxedWrapperRowData;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
+import org.apache.flink.table.types.logical.LogicalType;
+import org.apache.flink.table.types.logical.utils.LogicalTypeChecks;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
@@ -42,6 +44,8 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
 
     private final List<String> fieldNames;
 
+    private final LogicalType[] logicalTypes;
+
     private transient boolean closed = false;
 
     private transient ClickHouseConnection connection;
@@ -59,6 +63,7 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
     private final boolean ignoreDelete;
 
     protected ClickHouseShardSinkFunction(@Nonnull ClickHouseConnectionProvider connectionProvider,
+                                          @Nonnull LogicalType[] logicalTypes,
                                           @Nonnull List<String> fieldNames,
                                           @Nonnull Optional<String[]> keyFields,
                                           @Nonnull ClickHouseRowConverter converter,
@@ -66,6 +71,7 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
                                           @Nonnull ClickHouseOptions options) {
         LOG.info("ClickHouseShardSinkFunction init ....");
         this.connectionProvider = Preconditions.checkNotNull(connectionProvider);
+        this.logicalTypes = logicalTypes;
         this.fieldNames = Preconditions.checkNotNull(fieldNames);
         this.converter = Preconditions.checkNotNull(converter);
         this.partitioner = Preconditions.checkNotNull(partitioner);
@@ -175,13 +181,84 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
      * @return
      * @throws Exception
      */
-    public RowData genericRowData(RowData record) throws Exception{
-        BoxedWrapperRowData bwRowdata = new BoxedWrapperRowData(record.getArity());
-        bwRowdata.setRowKind(record.getRowKind());
+    public RowData genericRowData(RowData record){
+        BoxedWrapperRowData rowData = new BoxedWrapperRowData(record.getArity());
+        rowData.setRowKind(record.getRowKind());
+
         for(int i = 0; i < record.getArity(); i++) {
-            bwRowdata.setNonPrimitiveValue(i, record.getString(i));
+            LogicalType fieldType = logicalTypes[i];
+            switch(fieldType.getTypeRoot()) {
+                case CHAR:
+                case VARCHAR:
+                    rowData.setNonPrimitiveValue(i, record.getString(i));
+                    break;
+                case BOOLEAN:
+                    rowData.setBoolean(i, record.getBoolean(i));
+                    break;
+                case BINARY:
+                case VARBINARY:
+                    rowData.setNonPrimitiveValue(i, record.getBinary(i));
+                    break;
+                case DECIMAL:
+                    int decimalPrecision = LogicalTypeChecks.getPrecision(fieldType);
+                    int decimalScale = LogicalTypeChecks.getScale(fieldType);
+                    rowData.setDecimal(i, record.getDecimal(i, decimalPrecision, decimalScale), decimalPrecision);
+                    break;
+                case TINYINT:
+                    rowData.setByte(i, record.getByte(i));
+                    break;
+                case SMALLINT:
+                    rowData.setShort(i, record.getShort(i));
+                    break;
+                case INTEGER:
+                case DATE:
+                case TIME_WITHOUT_TIME_ZONE:
+                case INTERVAL_YEAR_MONTH:
+                    rowData.setInt(i, record.getInt(i));
+                    break;
+                case BIGINT:
+                case INTERVAL_DAY_TIME:
+                    rowData.setLong(i, record.getLong(i));
+                    break;
+                case FLOAT:
+                    rowData.setFloat(i, record.getFloat(i));
+                    break;
+                case DOUBLE:
+                    rowData.setDouble(i, record.getDouble(i));
+                    break;
+                case TIMESTAMP_WITHOUT_TIME_ZONE:
+                case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                    int timestampPrecision = LogicalTypeChecks.getPrecision(fieldType);
+                    rowData.setTimestamp(i, record.getTimestamp(i, timestampPrecision), timestampPrecision);
+                    break;
+                case TIMESTAMP_WITH_TIME_ZONE:
+                    throw new UnsupportedOperationException();
+                case ARRAY:
+                    rowData.setNonPrimitiveValue(i, record.getArray(i));
+                    break;
+                case MULTISET:
+                case MAP:
+                    rowData.setNonPrimitiveValue(i, record.getMap(i));
+                    break;
+                case ROW:
+                case STRUCTURED_TYPE:
+                    int rowFieldCount = LogicalTypeChecks.getFieldCount(fieldType);
+                    rowData.setNonPrimitiveValue(i, record.getRow(i, rowFieldCount));
+                    break;
+                case DISTINCT_TYPE:
+                    break;
+                case RAW:
+                    rowData.setNonPrimitiveValue(i, record.getRawValue(i));
+                    break;
+                case NULL:
+                case SYMBOL:
+                case UNRESOLVED:
+                default:
+                    throw new IllegalArgumentException();
+            }
+            //bwRowdata.setNonPrimitiveValue(i, record.getString(i));
         }
-        return bwRowdata;
+        return rowData;
     }
 
     @Override
