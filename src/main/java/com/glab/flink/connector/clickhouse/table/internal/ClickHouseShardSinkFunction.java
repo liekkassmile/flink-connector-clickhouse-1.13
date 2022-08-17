@@ -159,9 +159,9 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
 
         RowData record = genericRowData(rowData);
         this.shardExecutors.get(selected).addBatch(record);
-        this.batchCounts[selected] = this.batchCounts[selected]++;
+        this.batchCounts[selected] = ++this.batchCounts[selected];
         if (this.batchCounts[selected] >= this.options.getBatchSize()){
-            LOG.info("shard flush " + this.batchCounts[selected] + " 条数据!!!");
+            LOG.info("batch flush " + this.batchCounts[selected] + " 条数据!!!");
             this.flush(selected);
         }
     }
