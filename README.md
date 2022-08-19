@@ -1,6 +1,6 @@
 flink-connector-clickhouse
 
-flink版本1.13
+flink版本1.13+
 
 支持sink和source，支持实时数据写入，支持离线数据写入
 
