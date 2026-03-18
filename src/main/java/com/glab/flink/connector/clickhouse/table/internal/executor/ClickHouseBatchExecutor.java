@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import ru.yandex.clickhouse.ClickHouseConnection;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -351,17 +352,30 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
     }
 
     private void registerMetrics(RuntimeContext context) {
-        MetricGroup metricGroup = context.getMetricGroup().addGroup("clickhouseSink");
-        this.flushCounter = metricGroup.counter("flushCount");
-        this.retryCounter = metricGroup.counter("retryCount");
-        this.errorCounter = metricGroup.counter("writeErrorCount");
-        this.smallBatchFlushCounter = metricGroup.counter("smallBatchFlushCount");
-        metricGroup.gauge("pendingRows", () -> this.bufferedRows);
-        metricGroup.gauge("pendingBytes", () -> this.bufferedBytes);
-        metricGroup.gauge("inFlightBatches", () -> this.inFlightBuffers);
-        metricGroup.gauge("lastFlushRows", () -> this.lastFlushRows);
-        metricGroup.gauge("lastFlushBytes", () -> this.lastFlushBytes);
-        metricGroup.gauge("lastFlushLatencyMs", () -> this.lastFlushLatencyMs);
+        try {
+            // Access getMetricGroup via reflection to avoid return-type linkage issues
+            // between different Flink minor versions such as 1.13 and 1.14.
+            Method metricGroupMethod = context.getClass().getMethod("getMetricGroup");
+            Object metricGroupObject = metricGroupMethod.invoke(context);
+            if (!(metricGroupObject instanceof MetricGroup)) {
+                LOG.warn("Skip ClickHouse sink metrics registration because RuntimeContext metric group is not compatible: {}",
+                        metricGroupObject == null ? "null" : metricGroupObject.getClass().getName());
+                return;
+            }
+            MetricGroup metricGroup = ((MetricGroup) metricGroupObject).addGroup("clickhouseSink");
+            this.flushCounter = metricGroup.counter("flushCount");
+            this.retryCounter = metricGroup.counter("retryCount");
+            this.errorCounter = metricGroup.counter("writeErrorCount");
+            this.smallBatchFlushCounter = metricGroup.counter("smallBatchFlushCount");
+            metricGroup.gauge("pendingRows", () -> this.bufferedRows);
+            metricGroup.gauge("pendingBytes", () -> this.bufferedBytes);
+            metricGroup.gauge("inFlightBatches", () -> this.inFlightBuffers);
+            metricGroup.gauge("lastFlushRows", () -> this.lastFlushRows);
+            metricGroup.gauge("lastFlushBytes", () -> this.lastFlushBytes);
+            metricGroup.gauge("lastFlushLatencyMs", () -> this.lastFlushLatencyMs);
+        } catch (Throwable t) {
+            LOG.warn("Skip ClickHouse sink metrics registration because RuntimeContext metrics API is not compatible", t);
+        }
     }
 
     private long estimateRowSize(RowData rowData) {

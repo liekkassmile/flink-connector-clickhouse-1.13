@@ -261,6 +261,10 @@ public class ClickHouseRowBinaryEncoder {
                 String nested = normalized.substring("Nullable(".length(), normalized.length() - 1);
                 return new ColumnType(null, true, parse(nested), 0, 0, normalized);
             }
+            if (normalized.startsWith("LowCardinality(") && normalized.endsWith(")")) {
+                String nested = normalized.substring("LowCardinality(".length(), normalized.length() - 1);
+                return parse(nested);
+            }
             if (normalized.startsWith("FixedString(")) {
                 return new ColumnType(Kind.FIXED_STRING, false, null, 0, parseSingleIntArg(normalized), normalized);
             }

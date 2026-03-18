@@ -17,6 +17,7 @@ import ru.yandex.clickhouse.ClickHouseConnection;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.HashMap;
@@ -124,14 +125,7 @@ public class HttpRowBinaryWriter implements ClickHouseBulkWriter {
 
     private List<String> queryClickHouseTypes() throws Exception {
         Map<String, String> typesByName = new HashMap<>();
-        ClickHouseConnection metadataConnection = this.directConnection;
-        boolean closeAfterUse = false;
-        if (this.connectionProvider != null) {
-            // Metadata lookup should not reuse the sink's shared connection because
-            // the JDBC driver's underlying HTTP pool may already be closing during retries/shutdown.
-            metadataConnection = this.connectionProvider.createNewConnection();
-            closeAfterUse = true;
-        }
+        ClickHouseConnection metadataConnection = createMetadataConnection();
 
         try (PreparedStatement statement = metadataConnection.prepareStatement(
                 "SELECT name, type FROM system.columns WHERE database = ? AND table = ?")) {
@@ -143,7 +137,7 @@ public class HttpRowBinaryWriter implements ClickHouseBulkWriter {
                 }
             }
         } finally {
-            if (closeAfterUse && metadataConnection != null) {
+            if (metadataConnection != null) {
                 metadataConnection.close();
             }
         }
@@ -157,5 +151,32 @@ public class HttpRowBinaryWriter implements ClickHouseBulkWriter {
             orderedTypes.add(typeName);
         }
         return orderedTypes;
+    }
+
+    private ClickHouseConnection createMetadataConnection() throws Exception {
+        Class.forName("ru.yandex.clickhouse.ClickHouseDriver");
+        String jdbcUrl = buildJdbcUrl(this.targetUrl, this.databaseName);
+        if (this.options.getUsername().isPresent()) {
+            return (ClickHouseConnection) DriverManager.getConnection(
+                    jdbcUrl,
+                    this.options.getUsername().orElse(null),
+                    this.options.getPassword().orElse(null));
+        }
+        return (ClickHouseConnection) DriverManager.getConnection(jdbcUrl);
+    }
+
+    private String buildJdbcUrl(String baseUrl, String databaseName) {
+        String jdbcBaseUrl = baseUrl;
+        if (!jdbcBaseUrl.startsWith("jdbc:")) {
+            jdbcBaseUrl = "jdbc:" + jdbcBaseUrl;
+        }
+        int queryIndex = jdbcBaseUrl.indexOf('?');
+        String query = queryIndex >= 0 ? jdbcBaseUrl.substring(queryIndex) : "";
+        String withoutQuery = queryIndex >= 0 ? jdbcBaseUrl.substring(0, queryIndex) : jdbcBaseUrl;
+        int slashIndex = withoutQuery.indexOf('/', "jdbc:clickhouse://".length());
+        if (slashIndex >= 0) {
+            withoutQuery = withoutQuery.substring(0, slashIndex);
+        }
+        return withoutQuery + "/" + databaseName + query;
     }
 }
