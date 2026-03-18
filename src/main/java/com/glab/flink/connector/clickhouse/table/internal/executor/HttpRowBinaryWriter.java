@@ -126,9 +126,9 @@ public class HttpRowBinaryWriter implements ClickHouseBulkWriter {
         Map<String, String> typesByName = new HashMap<>();
         ClickHouseConnection metadataConnection = this.directConnection;
         boolean closeAfterUse = false;
-        if (metadataConnection == null && this.connectionProvider != null) {
-            metadataConnection = this.connectionProvider.getConnection();
-        } else if (metadataConnection == null) {
+        if (this.connectionProvider != null) {
+            // Metadata lookup should not reuse the sink's shared connection because
+            // the JDBC driver's underlying HTTP pool may already be closing during retries/shutdown.
             metadataConnection = this.connectionProvider.createNewConnection();
             closeAfterUse = true;
         }
