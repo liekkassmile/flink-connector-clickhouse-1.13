@@ -83,17 +83,19 @@ public class ClickHouseUpsertExecutor implements ClickHouseExecutor{
         switch (rowData.getRowKind()) {
             case INSERT:
                 this.insertBatch.add(rowData);
-                break;
+                return;
             case DELETE:
                 this.deleteBatch.add(rowData);
+                return;
             case UPDATE_AFTER:
                 this.updateBatch.add(rowData);
-                break;
+                return;
             case UPDATE_BEFORE:
                 return;
+            default:
+                throw new UnsupportedOperationException(
+                        String.format("Unknown row kind, the supported row kinds is: INSERT, UPDATE_BEFORE, UPDATE_AFTER, DELETE, but get: %s.", rowData.getRowKind()));
         }
-        throw new UnsupportedOperationException(
-                String.format("Unknown row kind, the supported row kinds is: INSERT, UPDATE_BEFORE, UPDATE_AFTER, DELETE, but get: %s.", new Object[] { rowData.getRowKind() }));
     }
 
     @Override
@@ -144,7 +146,7 @@ public class ClickHouseUpsertExecutor implements ClickHouseExecutor{
 
         private void processBatch(ClickHousePreparedStatement stmt, List<RowData> batch) throws Exception{
             if(!batch.isEmpty()) {
-                for (RowData rowData : ClickHouseUpsertExecutor.this.insertBatch) {
+                for (RowData rowData : batch) {
                     ClickHouseUpsertExecutor.this.converter.toClickHouse(rowData, stmt);
                     stmt.addBatch();
                 }
@@ -153,9 +155,10 @@ public class ClickHouseUpsertExecutor implements ClickHouseExecutor{
         }
 
         private void attemptExecuteBatch(ClickHousePreparedStatement stmt, List<RowData> batch) throws Exception {
-            for(int i = 0; i < ClickHouseUpsertExecutor.this.maxRetries; i++) {
+            for(int i = 1; i <= ClickHouseUpsertExecutor.this.maxRetries; i++) {
                 try {
                     stmt.executeBatch();
+                    stmt.clearBatch();
                     batch.clear();
                     break;
                 }catch (SQLException e) {

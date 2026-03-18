@@ -4,10 +4,10 @@ import com.glab.flink.connector.clickhouse.table.internal.connection.ClickHouseC
 import com.glab.flink.connector.clickhouse.table.internal.converter.ClickHouseRowConverter;
 import com.glab.flink.connector.clickhouse.table.internal.dialect.ClickHouseDialect;
 import com.glab.flink.connector.clickhouse.table.internal.options.ClickHouseOptions;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.connector.jdbc.internal.options.JdbcLookupOptions;
-import org.apache.flink.shaded.guava18.com.google.common.cache.Cache;
-import org.apache.flink.shaded.guava18.com.google.common.cache.CacheBuilder;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.functions.FunctionContext;
@@ -147,7 +147,7 @@ public class ClickHouseRowDataLookupFunction extends TableFunction<RowData> {
             }catch (SQLException e1) {
                 LOG.error(String.format("JDBC executionBatch error, retry times = %d", retry), e1);
 
-                if(retry > maxRetryTiems) {
+                if(retry >= maxRetryTiems) {
                     throw new RuntimeException("Execution of JDBC statement failed." , e1);
                 }
 

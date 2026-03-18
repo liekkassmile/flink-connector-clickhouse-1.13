@@ -14,12 +14,17 @@ public class ClickHouseStatementFactory implements Serializable {
         return "INSERT INTO " + quoteIdentifier(tableName) + "(" + columns + ") VALUES (" + placeholders + ")";
     }
 
+    public static String getInsertFormatStatement(String tableName, List<String> fieldNames, String format) {
+        String columns = fieldNames.stream().map(ClickHouseStatementFactory::quoteIdentifier).collect(Collectors.joining(", "));
+        return "INSERT INTO " + quoteIdentifier(tableName) + "(" + columns + ") FORMAT " + format;
+    }
+
     public static String getUpdateStatement(String tableName, List<String> fieldNames, String[] conditionFields, Optional<String> clusterName) {
         String setClause = fieldNames.stream().map(f -> quoteIdentifier(f) + "= ?").collect(Collectors.joining(", "));
         String conditionClause = Arrays.stream(conditionFields).map(f -> quoteIdentifier(f) + "= ?").collect(Collectors.joining(" AND "));
         String onClusterClause = "";
         if(clusterName.isPresent()) {
-            onClusterClause = " ON CLAUSTER " + quoteIdentifier(clusterName.get());
+            onClusterClause = " ON CLUSTER " + quoteIdentifier(clusterName.get());
         }
 
         return "ALTER TABLE " + quoteIdentifier(tableName) + onClusterClause + " UPDATE " + setClause + " WHERE " + conditionClause;

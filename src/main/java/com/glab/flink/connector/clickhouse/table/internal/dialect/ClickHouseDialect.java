@@ -48,7 +48,7 @@ public class ClickHouseDialect implements JdbcDialect {
     public String getInsertIntoStatement(String tableName, String[] fieldNames) {
         String columns = Arrays.stream(fieldNames).map(ClickHouseStatementFactory::quoteIdentifier).collect(Collectors.joining(", "));
         String placeholders = Arrays.stream(fieldNames).map(f -> "?").collect(Collectors.joining(", "));
-        return "INSERT INTO " + quoteIdentifier(tableName) + "(" + columns + ") VALUES (" + placeholders + ")";
+        return "INSERT INTO " + quoteIdentifier(tableName) + "(" + columns + ") SETTINGS max_threads = 16 VALUES (" + placeholders + ")";
     }
 
     public String getUpdateStatement(String tableName, String[] fieldNames, String[] conditionFields, Optional<String> clusterName) {
@@ -56,7 +56,7 @@ public class ClickHouseDialect implements JdbcDialect {
         String conditionClause = Arrays.stream(conditionFields).map(f -> quoteIdentifier(f) + "= ?").collect(Collectors.joining(" AND "));
         String onClusterClause = "";
         if(clusterName.isPresent()) {
-            onClusterClause = " ON CLAUSTER " + quoteIdentifier(clusterName.get());
+            onClusterClause = " ON CLUSTER " + quoteIdentifier(clusterName.get());
         }
 
         return "ALTER TABLE " + quoteIdentifier(tableName) + onClusterClause + " UPDATE " + setClause + " WHERE " + conditionClause;

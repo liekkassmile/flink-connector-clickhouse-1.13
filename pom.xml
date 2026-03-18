@@ -1,20 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>com.glab</groupId>
   <artifactId>flink-connector-clickhouse</artifactId>
-  <version>22.07.11</version>
+  <version>26.03.16</version>
 
   <name>flink-connector-clickhouse</name>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <flink.version>1.13.2</flink.version>
+    <flink.version>1.14.0</flink.version>
     <scala.binary.version>2.11</scala.binary.version>
+    <flink.jdbc.version>1.13.2</flink.jdbc.version>
     <clickhouse-jdbc-version>0.2.4</clickhouse-jdbc-version>
+    <hive.version>3.1.0</hive.version>
   </properties>
 
   <packaging>jar</packaging>
@@ -26,6 +28,28 @@
       <version>${clickhouse-jdbc-version}</version>
       <scope>provided</scope>
     </dependency>
+
+    <dependency>
+      <groupId>org.apache.hive</groupId>
+      <artifactId>hive-metastore</artifactId>
+      <version>${hive.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.hive</groupId>
+      <artifactId>hive-service</artifactId>
+      <version>${hive.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.hive</groupId>
+      <artifactId>hive-exec</artifactId>
+      <version>${hive.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+
     <dependency>
       <groupId>org.apache.httpcomponents</groupId>
       <artifactId>httpclient</artifactId>
@@ -60,13 +84,14 @@
       <scope>provided</scope>
     </dependency>
 
+
     <!--kafak connector 测试用-->
 
     <dependency>
       <groupId>org.apache.flink</groupId>
       <artifactId>flink-sql-connector-kafka_${scala.binary.version}</artifactId>
       <version>${flink.version}</version>
-      <scope>test</scope>
+      <scope>provided</scope>
     </dependency>
 
     <dependency>
@@ -76,12 +101,11 @@
       <scope>test</scope>
     </dependency>
 
-    <!-- Table ecosystem -->
-    <!-- Projects depending on this project won't depend on flink-table-*. -->
+
     <dependency>
       <groupId>org.apache.flink</groupId>
-      <artifactId>flink-clients_${scala.binary.version}</artifactId>
-      <version>${flink.version}</version>
+      <artifactId>flink-clients</artifactId>
+      <version>1.17.2</version>
       <scope>provided</scope>
     </dependency>
 
@@ -90,13 +114,11 @@
       <artifactId>flink-table-api-java-bridge_${scala.binary.version}</artifactId>
       <version>${flink.version}</version>
       <scope>provided</scope>
-      <!--<optional>true</optional>-->
     </dependency>
-
     <dependency>
       <groupId>org.apache.flink</groupId>
-      <artifactId>flink-streaming-java_${scala.binary.version}</artifactId>
-      <version>${flink.version}</version>
+      <artifactId>flink-streaming-java</artifactId>
+      <version>1.17.2</version>
       <scope>provided</scope>
     </dependency>
 
@@ -117,23 +139,20 @@
       <scope>provided</scope>
     </dependency>
 
-    <!-- A planner dependency won't be necessary once FLIP-32 has been completed. -->
-<!--    <dependency>
-      <groupId>org.apache.flink</groupId>
-      <artifactId>flink-table-planner_${scala.binary.version}</artifactId>
-      <version>${flink.version}</version>
-    </dependency>-->
-
     <dependency>
       <groupId>org.apache.flink</groupId>
-      <artifactId>flink-table-planner-blink_${scala.binary.version}</artifactId>
+      <artifactId>flink-table-runtime_${scala.binary.version}</artifactId>
       <version>${flink.version}</version>
       <scope>provided</scope>
     </dependency>
+
+    <!-- A planner dependency won't be necessary once FLIP-32 has been completed. -->
+
+
     <dependency>
       <groupId>org.apache.flink</groupId>
       <artifactId>flink-connector-jdbc_${scala.binary.version}</artifactId>
-      <version>${flink.version}</version>
+      <version>${flink.jdbc.version}</version>
       <scope>provided</scope>
     </dependency>
   </dependencies>

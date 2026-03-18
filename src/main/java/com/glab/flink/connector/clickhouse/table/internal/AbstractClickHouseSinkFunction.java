@@ -80,7 +80,7 @@ public abstract class AbstractClickHouseSinkFunction extends RichSinkFunction<Ro
             }
 
             //如果是写入本地表
-            return this.options.getWriteLocal() ? this.createShardSinkFunction(logicalTypes, converter) : createBatchSinkFunction(converter);
+            return this.options.getWriteLocal() ? this.createShardSinkFunction(logicalTypes, converter) : createBatchSinkFunction(logicalTypes, converter);
         }
 
         /**
@@ -88,7 +88,7 @@ public abstract class AbstractClickHouseSinkFunction extends RichSinkFunction<Ro
          * @param converter
          * @return
          */
-        private ClickHouseBatchSinkFunction createBatchSinkFunction(ClickHouseRowConverter converter) {
+        private ClickHouseBatchSinkFunction createBatchSinkFunction(LogicalType[] logicalTypes, ClickHouseRowConverter converter) {
             ClickHouseExecutor executor;
             if (this.primaryKey.isPresent() && !this.options.getIgnoreDelete()) {
                 executor = ClickHouseExecutor.createUpsertExecutor(
@@ -102,10 +102,13 @@ public abstract class AbstractClickHouseSinkFunction extends RichSinkFunction<Ro
                 executor = new ClickHouseBatchExecutor(
                                 sql,
                                 converter,
-                                this.options.getFlushInterval(),
-                                this.options.getBatchSize(),
-                                this.options.getMaxRetries(),
-                                this.rowDataTypeInformation);
+                                this.options,
+                                logicalTypes,
+                                this.rowDataTypeInformation,
+                                this.fieldNames,
+                                this.options.getDatabaseName(),
+                                this.options.getTableName(),
+                                null);
             }
             return new ClickHouseBatchSinkFunction(new ClickHouseConnectionProvider(this.options), executor, this.options);
         }

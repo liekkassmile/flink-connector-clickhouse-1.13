@@ -1,9 +1,7 @@
 package com.glab.flink.connector.clickhouse.table.internal.options;
 
 import com.glab.flink.connector.clickhouse.table.internal.dialect.ClickHouseDialect;
-import org.apache.flink.connector.jdbc.dialect.JdbcDialect;
 import org.apache.flink.connector.jdbc.dialect.JdbcDialects;
-import org.apache.flink.connector.jdbc.internal.options.JdbcOptions;
 import org.apache.flink.util.Preconditions;
 
 import javax.annotation.Nullable;
@@ -28,9 +26,27 @@ public class ClickHouseOptions implements Serializable {
 
     private final int batchSize;
 
+    private final long batchBytes;
+
     private final Duration flushInterval;
 
     private final int maxRetries;
+
+    private final int maxBufferedRows;
+
+    private final int maxInFlightBatches;
+
+    private final int flushThreadNum;
+
+    private final boolean preferLargeBatch;
+
+    private final int partialFlushMinRows;
+
+    private final String writerType;
+
+    private final Duration httpConnectTimeout;
+
+    private final Duration httpSocketTimeout;
 
     private final boolean writeLocal;
 
@@ -40,21 +56,33 @@ public class ClickHouseOptions implements Serializable {
 
     private final boolean ignoreDelete;
 
+    private final String sinkMode;
+
     private ClickHouseDialect dialect;
 
-    private ClickHouseOptions(String url, String username, String password, String databaseName, String tableName, int batchSize, Duration flushInterval, int maxRetires, boolean writeLocal, String partitionStrategy, String partitionKey, boolean ignoreDelete, ClickHouseDialect dialect) {
+    private ClickHouseOptions(String url, String username, String password, String databaseName, String tableName, int batchSize, long batchBytes, Duration flushInterval, int maxRetires, int maxBufferedRows, int maxInFlightBatches, int flushThreadNum, boolean preferLargeBatch, int partialFlushMinRows, String writerType, Duration httpConnectTimeout, Duration httpSocketTimeout, boolean writeLocal, String partitionStrategy, String partitionKey, boolean ignoreDelete, String sinkMode, ClickHouseDialect dialect) {
         this.url = url;
         this.username = username;
         this.password = password;
         this.databaseName = databaseName;
         this.tableName = tableName;
         this.batchSize = batchSize;
+        this.batchBytes = batchBytes;
         this.flushInterval = flushInterval;
         this.maxRetries = maxRetires;
+        this.maxBufferedRows = maxBufferedRows;
+        this.maxInFlightBatches = maxInFlightBatches;
+        this.flushThreadNum = flushThreadNum;
+        this.preferLargeBatch = preferLargeBatch;
+        this.partialFlushMinRows = partialFlushMinRows;
+        this.writerType = writerType;
+        this.httpConnectTimeout = httpConnectTimeout;
+        this.httpSocketTimeout = httpSocketTimeout;
         this.writeLocal = writeLocal;
         this.partitionStrategy = partitionStrategy;
         this.partitionKey = partitionKey;
         this.ignoreDelete = ignoreDelete;
+        this.sinkMode = sinkMode;
         this.dialect = dialect;
     }
 
@@ -82,6 +110,10 @@ public class ClickHouseOptions implements Serializable {
         return this.batchSize;
     }
 
+    public long getBatchBytes() {
+        return this.batchBytes;
+    }
+
     public Duration getFlushInterval() {
         return this.flushInterval;
     }
@@ -90,8 +122,40 @@ public class ClickHouseOptions implements Serializable {
         return this.maxRetries;
     }
 
+    public int getMaxBufferedRows() {
+        return this.maxBufferedRows;
+    }
+
+    public int getMaxInFlightBatches() {
+        return this.maxInFlightBatches;
+    }
+
+    public int getFlushThreadNum() {
+        return this.flushThreadNum;
+    }
+
+    public boolean getPreferLargeBatch() {
+        return this.preferLargeBatch;
+    }
+
+    public int getPartialFlushMinRows() {
+        return this.partialFlushMinRows;
+    }
+
     public boolean getWriteLocal() {
         return this.writeLocal;
+    }
+
+    public String getWriterType() {
+        return this.writerType;
+    }
+
+    public Duration getHttpConnectTimeout() {
+        return this.httpConnectTimeout;
+    }
+
+    public Duration getHttpSocketTimeout() {
+        return this.httpSocketTimeout;
     }
 
     public String getPartitionStrategy() {
@@ -104,6 +168,10 @@ public class ClickHouseOptions implements Serializable {
 
     public boolean getIgnoreDelete() {
         return this.ignoreDelete;
+    }
+
+    public String getSinkMode() {
+        return this.sinkMode;
     }
 
     public ClickHouseDialect getDialect() {return this.dialect; }
@@ -121,11 +189,29 @@ public class ClickHouseOptions implements Serializable {
 
         private int batchSize;
 
+        private long batchBytes;
+
         //flush 时间间隔
         private Duration flushInterval;
 
         //最大重试次数
         private int maxRetries;
+
+        private int maxBufferedRows;
+
+        private int maxInFlightBatches;
+
+        private int flushThreadNum;
+
+        private boolean preferLargeBatch;
+
+        private int partialFlushMinRows;
+
+        private String writerType;
+
+        private Duration httpConnectTimeout;
+
+        private Duration httpSocketTimeout;
 
         //是否写本地表
         private boolean writeLocal;
@@ -138,6 +224,8 @@ public class ClickHouseOptions implements Serializable {
 
         //忽略 DELETE 并视 UPDATE 为 INSERT
         private boolean ignoreDelete;
+
+        private String sinkMode;
 
         private ClickHouseDialect dialect;
 
@@ -171,6 +259,11 @@ public class ClickHouseOptions implements Serializable {
             return this;
         }
 
+        public Builder withBatchBytes(long batchBytes) {
+            this.batchBytes = batchBytes;
+            return this;
+        }
+
         public Builder withFlushInterval(Duration flushInterval) {
             this.flushInterval = flushInterval;
             return this;
@@ -178,6 +271,46 @@ public class ClickHouseOptions implements Serializable {
 
         public Builder withMaxRetries(int maxRetries) {
             this.maxRetries = maxRetries;
+            return this;
+        }
+
+        public Builder withMaxBufferedRows(int maxBufferedRows) {
+            this.maxBufferedRows = maxBufferedRows;
+            return this;
+        }
+
+        public Builder withMaxInFlightBatches(int maxInFlightBatches) {
+            this.maxInFlightBatches = maxInFlightBatches;
+            return this;
+        }
+
+        public Builder withFlushThreadNum(int flushThreadNum) {
+            this.flushThreadNum = flushThreadNum;
+            return this;
+        }
+
+        public Builder withPreferLargeBatch(boolean preferLargeBatch) {
+            this.preferLargeBatch = preferLargeBatch;
+            return this;
+        }
+
+        public Builder withPartialFlushMinRows(int partialFlushMinRows) {
+            this.partialFlushMinRows = partialFlushMinRows;
+            return this;
+        }
+
+        public Builder withWriterType(String writerType) {
+            this.writerType = writerType;
+            return this;
+        }
+
+        public Builder withHttpConnectTimeout(Duration httpConnectTimeout) {
+            this.httpConnectTimeout = httpConnectTimeout;
+            return this;
+        }
+
+        public Builder withHttpSocketTimeout(Duration httpSocketTimeout) {
+            this.httpSocketTimeout = httpSocketTimeout;
             return this;
         }
 
@@ -201,6 +334,11 @@ public class ClickHouseOptions implements Serializable {
             return this;
         }
 
+        public Builder withSinkMode(String sinkMode) {
+            this.sinkMode = sinkMode;
+            return this;
+        }
+
         public ClickHouseOptions.Builder setDialect(ClickHouseDialect dialect) {
             this.dialect = dialect;
             return this;
@@ -216,7 +354,7 @@ public class ClickHouseOptions implements Serializable {
                     throw new NullPointerException("Unknown dbURL,can not find proper dialect.");
                 });
             }
-            return new ClickHouseOptions(this.url, this.username, this.password, this.databaseName, this.tableName, this.batchSize, this.flushInterval, this.maxRetries, this.writeLocal, this.partitionStrategy, this.partitionKey, this.ignoreDelete, this.dialect);
+            return new ClickHouseOptions(this.url, this.username, this.password, this.databaseName, this.tableName, this.batchSize, this.batchBytes, this.flushInterval, this.maxRetries, this.maxBufferedRows, this.maxInFlightBatches, this.flushThreadNum, this.preferLargeBatch, this.partialFlushMinRows, this.writerType, this.httpConnectTimeout, this.httpSocketTimeout, this.writeLocal, this.partitionStrategy, this.partitionKey, this.ignoreDelete, this.sinkMode, this.dialect);
         }
     }
 }
