@@ -46,15 +46,23 @@ public class ClickHouseHttpConnectionProvider implements Closeable {
     }
 
     private URI buildUri(String databaseName, String insertSql) throws Exception {
-        String baseUrl = this.targetUrl;
-        if (baseUrl.startsWith("jdbc:")) {
-            baseUrl = baseUrl.substring("jdbc:".length());
-        }
+        String baseUrl = normalizeHttpUrl(this.targetUrl);
         return new URIBuilder(baseUrl)
                 .setPath("/")
                 .addParameter("database", databaseName)
                 .addParameter("query", insertSql)
                 .build();
+    }
+
+    private String normalizeHttpUrl(String rawUrl) {
+        String normalized = rawUrl;
+        if (normalized.startsWith("jdbc:")) {
+            normalized = normalized.substring("jdbc:".length());
+        }
+        if (normalized.startsWith("clickhouse://")) {
+            normalized = "http://" + normalized.substring("clickhouse://".length());
+        }
+        return normalized;
     }
 
     @Override
