@@ -7,12 +7,10 @@ import com.glab.flink.connector.clickhouse.table.internal.executor.ClickHouseExe
 import com.glab.flink.connector.clickhouse.table.internal.options.ClickHouseOptions;
 import com.glab.flink.connector.clickhouse.table.internal.partitioner.ClickHousePartitioner;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.table.data.BoxedWrapperRowData;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.utils.LogicalTypeChecks;
-import org.apache.flink.types.Row;
 import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,15 +50,19 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
 
     private String remoteTable;
 
+    private String remoteDatabase;
+
     private transient List<ClickHouseConnection> shardConnections;
 
-    private transient int[] batchCounts;
+    private transient List<String> shardUrls;
 
     private final List<ClickHouseExecutor> shardExecutors;
 
     private final String[] keyFields;
 
     private final boolean ignoreDelete;
+
+    private transient boolean objectReuseEnabled;
 
     protected ClickHouseShardSinkFunction(@Nonnull ClickHouseConnectionProvider connectionProvider,
                                           @Nonnull LogicalType[] logicalTypes,
@@ -91,6 +93,7 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
             this.connection = this.connectionProvider.getConnection();
             establishShardConnections();
             initializeExecutors();
+            this.objectReuseEnabled = getRuntimeContext().getExecutionConfig().isObjectReuseEnabled();
         } catch (Exception e) {
             throw new IOException("unable to establish connection to ClickHouse", e);
         }
@@ -102,10 +105,10 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
             Matcher matcher = PATTERN.matcher(engine);
             if (matcher.find()) {
                 String remoteCluster = matcher.group("cluster").replace("'", "");
-                String remoteDatabase = matcher.group("database").replace("'", "");
+                this.remoteDatabase = matcher.group("database").replace("'", "");
                 this.remoteTable = matcher.group("table").replace("'", "");
-                this.shardConnections = this.connectionProvider.getShardConnections(remoteCluster, remoteDatabase);
-                this.batchCounts = new int[this.shardConnections.size()];
+                this.shardConnections = this.connectionProvider.getShardConnections(remoteCluster, this.remoteDatabase);
+                this.shardUrls = this.connectionProvider.getShardUrls();
             } else {
                 throw new IOException("table `" + this.options.getDatabaseName() + "`.`" + this.options.getTableName() + "` is not a Distributed table");
             }
@@ -123,9 +126,19 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
             if (this.keyFields.length > 0) {
                 executor = ClickHouseExecutor.createUpsertExecutor(this.remoteTable, this.fieldNames, this.keyFields, this.converter, this.options);
             } else {
-                executor = new ClickHouseBatchExecutor(sql, this.converter, this.options.getFlushInterval(), this.options.getBatchSize(), this.options.getMaxRetries(), null);
+                executor = new ClickHouseBatchExecutor(
+                        sql,
+                        this.converter,
+                        this.options,
+                        this.logicalTypes,
+                        null,
+                        this.fieldNames,
+                        this.remoteDatabase,
+                        this.remoteTable,
+                        this.shardUrls != null && this.shardUrls.size() > i ? this.shardUrls.get(i) : null);
             }
             executor.prepareStatement(this.shardConnections.get(i));
+            executor.setRuntimeContext(getRuntimeContext());
             this.shardExecutors.add(executor);
         }
     }
@@ -156,22 +169,14 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
 
     private void writeRecordToOneExecutor(RowData rowData) throws Exception {
         int selected = this.partitioner.select(rowData, this.shardExecutors.size());
-
-        RowData record = genericRowData(rowData);
+        RowData record = this.objectReuseEnabled ? genericRowData(rowData) : rowData;
         this.shardExecutors.get(selected).addBatch(record);
-        this.batchCounts[selected] = ++this.batchCounts[selected];
-        if (this.batchCounts[selected] >= this.options.getBatchSize()){
-            LOG.info("batch flush " + this.batchCounts[selected] + " 条数据!!!");
-            this.flush(selected);
-        }
     }
 
     private void writeRecordToAllExecutors(RowData record) throws IOException {
+        RowData recordToWrite = this.objectReuseEnabled ? genericRowData(record) : record;
         for (int i = 0; i < this.shardExecutors.size(); ++i) {
-            this.shardExecutors.get(i).addBatch(record);
-            this.batchCounts[i] = this.batchCounts[i] + 1;
-            if (this.batchCounts[i] >= this.options.getBatchSize())
-                this.flush(i);
+            this.shardExecutors.get(i).addBatch(recordToWrite);
         }
     }
 
@@ -182,73 +187,77 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
      * @throws Exception
      */
     public RowData genericRowData(RowData record){
-        BoxedWrapperRowData rowData = new BoxedWrapperRowData(record.getArity());
+        GenericRowData rowData = new GenericRowData(record.getArity());
         rowData.setRowKind(record.getRowKind());
 
         for(int i = 0; i < record.getArity(); i++) {
+            if (record.isNullAt(i)) {
+                rowData.setField(i, null);
+                continue;
+            }
             LogicalType fieldType = logicalTypes[i];
             switch(fieldType.getTypeRoot()) {
                 case CHAR:
                 case VARCHAR:
-                    rowData.setNonPrimitiveValue(i, record.getString(i));
+                    rowData.setField(i, record.getString(i));
                     break;
                 case BOOLEAN:
-                    rowData.setBoolean(i, record.getBoolean(i));
+                    rowData.setField(i, record.getBoolean(i));
                     break;
                 case BINARY:
                 case VARBINARY:
-                    rowData.setNonPrimitiveValue(i, record.getBinary(i));
+                    rowData.setField(i, record.getBinary(i));
                     break;
                 case DECIMAL:
                     int decimalPrecision = LogicalTypeChecks.getPrecision(fieldType);
                     int decimalScale = LogicalTypeChecks.getScale(fieldType);
-                    rowData.setDecimal(i, record.getDecimal(i, decimalPrecision, decimalScale), decimalPrecision);
+                    rowData.setField(i, record.getDecimal(i, decimalPrecision, decimalScale));
                     break;
                 case TINYINT:
-                    rowData.setByte(i, record.getByte(i));
+                    rowData.setField(i, record.getByte(i));
                     break;
                 case SMALLINT:
-                    rowData.setShort(i, record.getShort(i));
+                    rowData.setField(i, record.getShort(i));
                     break;
                 case INTEGER:
                 case DATE:
                 case TIME_WITHOUT_TIME_ZONE:
                 case INTERVAL_YEAR_MONTH:
-                    rowData.setInt(i, record.getInt(i));
+                    rowData.setField(i, record.getInt(i));
                     break;
                 case BIGINT:
                 case INTERVAL_DAY_TIME:
-                    rowData.setLong(i, record.getLong(i));
+                    rowData.setField(i, record.getLong(i));
                     break;
                 case FLOAT:
-                    rowData.setFloat(i, record.getFloat(i));
+                    rowData.setField(i, record.getFloat(i));
                     break;
                 case DOUBLE:
-                    rowData.setDouble(i, record.getDouble(i));
+                    rowData.setField(i, record.getDouble(i));
                     break;
                 case TIMESTAMP_WITHOUT_TIME_ZONE:
                 case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
                     int timestampPrecision = LogicalTypeChecks.getPrecision(fieldType);
-                    rowData.setTimestamp(i, record.getTimestamp(i, timestampPrecision), timestampPrecision);
+                    rowData.setField(i, record.getTimestamp(i, timestampPrecision));
                     break;
                 case TIMESTAMP_WITH_TIME_ZONE:
                     throw new UnsupportedOperationException();
                 case ARRAY:
-                    rowData.setNonPrimitiveValue(i, record.getArray(i));
+                    rowData.setField(i, record.getArray(i));
                     break;
                 case MULTISET:
                 case MAP:
-                    rowData.setNonPrimitiveValue(i, record.getMap(i));
+                    rowData.setField(i, record.getMap(i));
                     break;
                 case ROW:
                 case STRUCTURED_TYPE:
                     int rowFieldCount = LogicalTypeChecks.getFieldCount(fieldType);
-                    rowData.setNonPrimitiveValue(i, record.getRow(i, rowFieldCount));
+                    rowData.setField(i, record.getRow(i, rowFieldCount));
                     break;
                 case DISTINCT_TYPE:
                     break;
                 case RAW:
-                    rowData.setNonPrimitiveValue(i, record.getRawValue(i));
+                    rowData.setField(i, record.getRawValue(i));
                     break;
                 case NULL:
                 case SYMBOL:
@@ -270,7 +279,6 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
 
     public void flush(int index) throws IOException {
         this.shardExecutors.get(index).executeBatch();
-        this.batchCounts[index] = 0;
     }
 
     @Override

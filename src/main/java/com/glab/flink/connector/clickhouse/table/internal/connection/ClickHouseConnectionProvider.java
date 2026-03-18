@@ -42,6 +42,8 @@ public class ClickHouseConnectionProvider implements Serializable {
 
     private transient List<ClickHouseConnection> shardConnections;
 
+    private transient List<String> shardUrls;
+
     private final ClickHouseOptions options;
 
     public ClickHouseConnectionProvider(ClickHouseOptions options) {
@@ -53,6 +55,10 @@ public class ClickHouseConnectionProvider implements Serializable {
             this.connection = createConnection(this.options.getUrl(), this.options.getDatabaseName());
         }
         return this.connection;
+    }
+
+    public ClickHouseConnection createNewConnection() throws SQLException {
+        return createConnection(this.options.getUrl(), this.options.getDatabaseName());
     }
 
     /**
@@ -111,10 +117,12 @@ public class ClickHouseConnectionProvider implements Serializable {
             ResultSet rs = stmt.executeQuery();
             try {
                 this.shardConnections = new ArrayList<>();
+                this.shardUrls = new ArrayList<>();
                 while(rs.next()) {
                     String host_address = rs.getString("host_address");
                     int port = getActualHttpPort(host_address, rs.getInt("port"));
                     String url = "clickhouse://" + host_address + ":" + port;
+                    this.shardUrls.add(url);
                     this.shardConnections.add(createConnection(url, remoteDataBase));
                 }
             } catch (Exception e) {
@@ -131,6 +139,10 @@ public class ClickHouseConnectionProvider implements Serializable {
         }
 
         return this.shardConnections;
+    }
+
+    public synchronized List<String> getShardUrls() {
+        return this.shardUrls == null ? new ArrayList<>() : new ArrayList<>(this.shardUrls);
     }
 
     private int getActualHttpPort(String host_address, int port) throws Exception{

@@ -4,11 +4,7 @@ import com.glab.flink.connector.clickhouse.table.internal.connection.ClickHouseC
 import com.glab.flink.connector.clickhouse.table.internal.executor.ClickHouseExecutor;
 import com.glab.flink.connector.clickhouse.table.internal.options.ClickHouseOptions;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
-import org.apache.flink.table.data.binary.BinaryRowData;
-import org.apache.flink.table.factories.datagen.types.RowDataGenerator;
-import org.apache.flink.types.Row;
 import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,8 +28,6 @@ public class ClickHouseBatchSinkFunction extends AbstractClickHouseSinkFunction{
 
     private transient boolean closed = false;
 
-    private transient int batchCount = 0;
-
     protected ClickHouseBatchSinkFunction(@Nonnull ClickHouseConnectionProvider connectionProvider,
                                        @Nonnull ClickHouseExecutor executor,
                                        @Nonnull ClickHouseOptions options) {
@@ -56,12 +50,6 @@ public class ClickHouseBatchSinkFunction extends AbstractClickHouseSinkFunction{
     @Override
     public void invoke(RowData rowData, Context context) throws IOException{
         addBatch(rowData);
-        ++this.batchCount;
-        if(this.batchCount >= this.options.getBatchSize()) {
-            LOG.info("batch flush: " + this.batchCount + "条数据.....");
-            flush();
-            this.batchCount = 0;
-        }
     }
 
     private void addBatch(RowData rowData) throws IOException {
