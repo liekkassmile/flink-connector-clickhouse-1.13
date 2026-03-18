@@ -5,12 +5,6 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.EnvironmentSettings;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.TokenStream;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
-import org.wltea.analyzer.core.IKSegmenter;
-import org.wltea.analyzer.core.Lexeme;
 
 import java.io.StringReader;
 
@@ -54,24 +48,5 @@ public class TestJdbc {
         document = "This is a sample document containing keywords like Java, tokenizer, and Lucene.";
 
         String[] keywords = {"Java", "tokenizer", "Lucene"};
-
-        Analyzer analyzer = new StandardAnalyzer("");
-
-        TokenStream tokenStream = analyzer.tokenStream("content", new StringReader(document));
-        CharTermAttribute charTermAttribute = tokenStream.addAttribute(CharTermAttribute.class);
-
-        tokenStream.reset();
-        while (tokenStream.incrementToken()) {
-            String token = charTermAttribute.toString();
-            for (String keyword : keywords) {
-                if (token.equalsIgnoreCase(keyword)) {
-                    System.out.println("Matched keyword: " + keyword);
-                }
-            }
-        }
-        tokenStream.end();
-        tokenStream.close();
-
-        analyzer.close();
     }
  }
