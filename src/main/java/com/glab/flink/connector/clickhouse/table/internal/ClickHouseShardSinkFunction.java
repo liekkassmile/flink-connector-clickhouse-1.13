@@ -169,12 +169,12 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
 
     private void writeRecordToOneExecutor(RowData rowData) throws Exception {
         int selected = this.partitioner.select(rowData, this.shardExecutors.size());
-        RowData record = this.objectReuseEnabled ? genericRowData(rowData) : rowData;
+        RowData record = genericRowData(rowData);
         this.shardExecutors.get(selected).addBatch(record);
     }
 
     private void writeRecordToAllExecutors(RowData record) throws IOException {
-        RowData recordToWrite = this.objectReuseEnabled ? genericRowData(record) : record;
+        RowData recordToWrite = genericRowData(record);
         for (int i = 0; i < this.shardExecutors.size(); ++i) {
             this.shardExecutors.get(i).addBatch(recordToWrite);
         }

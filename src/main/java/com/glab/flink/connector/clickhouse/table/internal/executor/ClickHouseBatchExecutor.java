@@ -327,7 +327,7 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
     }
 
     private RowData copyIfNeeded(RowData record) {
-        if (this.objectReuseEnabled && this.typeSerializer != null) {
+        if (this.typeSerializer != null) {
             return this.typeSerializer.copy(record);
         }
         return record;

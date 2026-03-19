@@ -10,12 +10,24 @@ import org.apache.flink.table.types.logical.TimestampType;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 
 public class ClickHouseRowBinaryEncoder {
+    private static final ZoneId DEFAULT_ZONE_ID = ZoneId.systemDefault();
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter DATE_TIME_MILLIS_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+
     private final LogicalType[] logicalTypes;
     private final List<ColumnType> columnTypes;
 
@@ -52,29 +64,29 @@ public class ClickHouseRowBinaryEncoder {
 
         switch (columnType.kind) {
             case BOOL:
-                outputStream.write(rowData.getBoolean(index) ? 1 : 0);
+                outputStream.write(extractBoolean(rowData, logicalType, index) ? 1 : 0);
                 return;
             case INT8:
             case UINT8:
-                outputStream.write(extractNumber(rowData, logicalType, index).intValue());
+                outputStream.write(extractNumber(columnType, rowData, logicalType, index).intValue());
                 return;
             case INT16:
             case UINT16:
-                writeLittleEndianShort(outputStream, extractNumber(rowData, logicalType, index).shortValue());
+                writeLittleEndianShort(outputStream, extractNumber(columnType, rowData, logicalType, index).shortValue());
                 return;
             case INT32:
             case UINT32:
-                writeLittleEndianInt(outputStream, extractNumber(rowData, logicalType, index).intValue());
+                writeLittleEndianInt(outputStream, extractNumber(columnType, rowData, logicalType, index).intValue());
                 return;
             case INT64:
             case UINT64:
-                writeLittleEndianLong(outputStream, extractNumber(rowData, logicalType, index).longValue());
+                writeLittleEndianLong(outputStream, extractNumber(columnType, rowData, logicalType, index).longValue());
                 return;
             case FLOAT32:
-                writeLittleEndianInt(outputStream, Float.floatToIntBits((float) extractNumber(rowData, logicalType, index).doubleValue()));
+                writeLittleEndianInt(outputStream, Float.floatToIntBits((float) extractNumber(columnType, rowData, logicalType, index).doubleValue()));
                 return;
             case FLOAT64:
-                writeLittleEndianLong(outputStream, Double.doubleToLongBits(extractNumber(rowData, logicalType, index).doubleValue()));
+                writeLittleEndianLong(outputStream, Double.doubleToLongBits(extractNumber(columnType, rowData, logicalType, index).doubleValue()));
                 return;
             case STRING:
                 writeLengthPrefixedBytes(outputStream, extractBytes(rowData, logicalType, index));
@@ -83,10 +95,10 @@ public class ClickHouseRowBinaryEncoder {
                 writeFixedString(outputStream, extractBytes(rowData, logicalType, index), columnType.length);
                 return;
             case DATE:
-                writeLittleEndianShort(outputStream, (short) rowData.getInt(index));
+                writeLittleEndianShort(outputStream, (short) extractDateDays(rowData, logicalType, index));
                 return;
             case DATE32:
-                writeLittleEndianInt(outputStream, rowData.getInt(index));
+                writeLittleEndianInt(outputStream, extractDateDays(rowData, logicalType, index));
                 return;
             case DATETIME:
                 writeLittleEndianInt(outputStream, (int) (extractTimestampMillis(rowData, logicalType, index) / 1000L));
@@ -95,23 +107,23 @@ public class ClickHouseRowBinaryEncoder {
                 writeLittleEndianLong(outputStream, toDateTime64(extractTimestamp(rowData, logicalType, index), columnType.scale));
                 return;
             case DECIMAL32:
-                writeLittleEndianInt(outputStream, extractDecimal(rowData, logicalType, index).intValue());
+                writeLittleEndianInt(outputStream, extractDecimal(rowData, logicalType, columnType, index).intValue());
                 return;
             case DECIMAL64:
-                writeLittleEndianLong(outputStream, extractDecimal(rowData, logicalType, index).longValue());
+                writeLittleEndianLong(outputStream, extractDecimal(rowData, logicalType, columnType, index).longValue());
                 return;
             case DECIMAL128:
-                writeBigIntegerLittleEndian(outputStream, extractDecimal(rowData, logicalType, index), 16);
+                writeBigIntegerLittleEndian(outputStream, extractDecimal(rowData, logicalType, columnType, index), 16);
                 return;
             case DECIMAL256:
-                writeBigIntegerLittleEndian(outputStream, extractDecimal(rowData, logicalType, index), 32);
+                writeBigIntegerLittleEndian(outputStream, extractDecimal(rowData, logicalType, columnType, index), 32);
                 return;
             default:
                 throw new UnsupportedOperationException("Unsupported ClickHouse type for RowBinary: " + columnType.rawTypeName);
         }
     }
 
-    private Number extractNumber(RowData rowData, LogicalType logicalType, int index) {
+    private Number extractNumber(ColumnType columnType, RowData rowData, LogicalType logicalType, int index) {
         switch (logicalType.getTypeRoot()) {
             case BOOLEAN:
                 return rowData.getBoolean(index) ? 1 : 0;
@@ -131,6 +143,9 @@ public class ClickHouseRowBinaryEncoder {
                 return rowData.getFloat(index);
             case DOUBLE:
                 return rowData.getDouble(index);
+            case CHAR:
+            case VARCHAR:
+                return parseStringNumber(rowData.getString(index).toString(), columnType);
             default:
                 throw new UnsupportedOperationException("Unsupported numeric logical type: " + logicalType);
         }
@@ -141,24 +156,110 @@ public class ClickHouseRowBinaryEncoder {
             case CHAR:
             case VARCHAR:
                 StringData stringData = rowData.getString(index);
-                return stringData.toBytes();
+                return stringData == null ? new byte[0] : stringData.toBytes();
             case BINARY:
             case VARBINARY:
-                return rowData.getBinary(index);
+                byte[] binary = rowData.getBinary(index);
+                return binary == null ? new byte[0] : binary;
             default:
                 throw new UnsupportedOperationException("Unsupported bytes logical type: " + logicalType);
         }
     }
 
-    private BigInteger extractDecimal(RowData rowData, LogicalType logicalType, int index) {
-        DecimalType decimalType = (DecimalType) logicalType;
-        DecimalData decimalData = rowData.getDecimal(index, decimalType.getPrecision(), decimalType.getScale());
-        return decimalData.toBigDecimal().unscaledValue();
+    private boolean extractBoolean(RowData rowData, LogicalType logicalType, int index) {
+        switch (logicalType.getTypeRoot()) {
+            case BOOLEAN:
+                return rowData.getBoolean(index);
+            case TINYINT:
+                return rowData.getByte(index) != 0;
+            case SMALLINT:
+                return rowData.getShort(index) != 0;
+            case INTEGER:
+                return rowData.getInt(index) != 0;
+            case BIGINT:
+                return rowData.getLong(index) != 0L;
+            case CHAR:
+            case VARCHAR:
+                String value = rowData.getString(index) == null ? "" : rowData.getString(index).toString().trim();
+                if ("1".equals(value) || "true".equalsIgnoreCase(value)) {
+                    return true;
+                }
+                if ("0".equals(value) || "false".equalsIgnoreCase(value)) {
+                    return false;
+                }
+                throw new IllegalArgumentException("Unsupported boolean string value: " + value);
+            default:
+                throw new UnsupportedOperationException("Unsupported boolean logical type: " + logicalType);
+        }
+    }
+
+    private BigInteger extractDecimal(RowData rowData, LogicalType logicalType, ColumnType columnType, int index) {
+        switch (logicalType.getTypeRoot()) {
+            case DECIMAL:
+                DecimalType decimalType = (DecimalType) logicalType;
+                DecimalData decimalData = rowData.getDecimal(index, decimalType.getPrecision(), decimalType.getScale());
+                return decimalData.toBigDecimal().unscaledValue();
+            case CHAR:
+            case VARCHAR:
+                return new BigDecimal(rowData.getString(index).toString().trim()).unscaledValue();
+            default:
+                throw new UnsupportedOperationException("Unsupported decimal logical type: " + logicalType + " for ClickHouse type " + columnType.rawTypeName);
+        }
+    }
+
+    private Number parseStringNumber(String rawValue, ColumnType columnType) {
+        String value = rawValue == null ? "" : rawValue.trim();
+        switch (columnType.kind) {
+            case FLOAT32:
+            case FLOAT64:
+                return Double.parseDouble(value);
+            case INT8:
+            case UINT8:
+            case INT16:
+            case UINT16:
+            case INT32:
+            case UINT32:
+                return Integer.parseInt(value);
+            case INT64:
+            case UINT64:
+                return Long.parseLong(value);
+            case BOOL:
+                if ("1".equals(value) || "true".equalsIgnoreCase(value)) {
+                    return 1;
+                }
+                if ("0".equals(value) || "false".equalsIgnoreCase(value)) {
+                    return 0;
+                }
+                throw new IllegalArgumentException("Unsupported boolean string value: " + rawValue);
+            default:
+                throw new UnsupportedOperationException("Unsupported string-to-number conversion for ClickHouse type: " + columnType.rawTypeName);
+        }
+    }
+
+    private int extractDateDays(RowData rowData, LogicalType logicalType, int index) {
+        switch (logicalType.getTypeRoot()) {
+            case DATE:
+                return rowData.getInt(index);
+            case CHAR:
+            case VARCHAR:
+                return (int) LocalDate.parse(rowData.getString(index).toString().trim(), DATE_FORMATTER).toEpochDay();
+            default:
+                throw new UnsupportedOperationException("Unsupported date logical type: " + logicalType);
+        }
     }
 
     private TimestampData extractTimestamp(RowData rowData, LogicalType logicalType, int index) {
-        TimestampType timestampType = (TimestampType) logicalType;
-        return rowData.getTimestamp(index, timestampType.getPrecision());
+        switch (logicalType.getTypeRoot()) {
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                TimestampType timestampType = (TimestampType) logicalType;
+                return rowData.getTimestamp(index, timestampType.getPrecision());
+            case CHAR:
+            case VARCHAR:
+                return TimestampData.fromTimestamp(parseTimestamp(rowData.getString(index).toString().trim()));
+            default:
+                throw new UnsupportedOperationException("Unsupported timestamp logical type: " + logicalType);
+        }
     }
 
     private long extractTimestampMillis(RowData rowData, LogicalType logicalType, int index) {
@@ -174,6 +275,38 @@ public class ClickHouseRowBinaryEncoder {
         long base = millis * pow10(scale - 3);
         int nanos = timestamp.getNanos() % 1_000_000;
         return base + nanos / pow10(9 - scale);
+    }
+
+    private Timestamp parseTimestamp(String rawValue) {
+        if (rawValue.matches("^-?\\d+$")) {
+            long epoch = Long.parseLong(rawValue);
+            if (rawValue.length() <= 10) {
+                return Timestamp.from(Instant.ofEpochSecond(epoch));
+            }
+            return Timestamp.from(Instant.ofEpochMilli(epoch));
+        }
+
+        try {
+            return Timestamp.valueOf(LocalDateTime.parse(rawValue, DATE_TIME_MILLIS_FORMATTER));
+        } catch (DateTimeParseException ignored) {
+        }
+
+        try {
+            return Timestamp.valueOf(LocalDateTime.parse(rawValue, DATE_TIME_FORMATTER));
+        } catch (DateTimeParseException ignored) {
+        }
+
+        try {
+            return Timestamp.from(LocalDate.parse(rawValue, DATE_FORMATTER).atStartOfDay(DEFAULT_ZONE_ID).toInstant());
+        } catch (DateTimeParseException ignored) {
+        }
+
+        try {
+            return Timestamp.from(Instant.parse(rawValue));
+        } catch (DateTimeParseException ignored) {
+        }
+
+        throw new IllegalArgumentException("Unsupported timestamp string value: " + rawValue);
     }
 
     private long pow10(int exponent) {
