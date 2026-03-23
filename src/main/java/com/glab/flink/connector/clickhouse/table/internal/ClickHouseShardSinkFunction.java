@@ -4,6 +4,7 @@ import com.glab.flink.connector.clickhouse.table.internal.connection.ClickHouseC
 import com.glab.flink.connector.clickhouse.table.internal.converter.ClickHouseRowConverter;
 import com.glab.flink.connector.clickhouse.table.internal.executor.ClickHouseBatchExecutor;
 import com.glab.flink.connector.clickhouse.table.internal.executor.ClickHouseExecutor;
+import com.glab.flink.connector.clickhouse.table.internal.executor.BufferMemoryLimiter;
 import com.glab.flink.connector.clickhouse.table.internal.options.ClickHouseOptions;
 import com.glab.flink.connector.clickhouse.table.internal.partitioner.ClickHousePartitioner;
 import org.apache.flink.configuration.Configuration;
@@ -64,6 +65,8 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
 
     private transient boolean objectReuseEnabled;
 
+    private transient BufferMemoryLimiter sharedMemoryLimiter;
+
     protected ClickHouseShardSinkFunction(@Nonnull ClickHouseConnectionProvider connectionProvider,
                                           @Nonnull LogicalType[] logicalTypes,
                                           @Nonnull List<String> fieldNames,
@@ -119,6 +122,8 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
 
     private void initializeExecutors() throws SQLException {
         String sql = ClickHouseStatementFactory.getInsertIntoStatement(this.remoteTable, this.fieldNames);
+        // 所有 shard executor 共用一份预算，避免 shard 多时每个 executor 各自堆满缓冲。
+        this.sharedMemoryLimiter = createSharedMemoryLimiter();
 
         for (int i = 0; i < this.shardConnections.size(); i++) {
             ClickHouseExecutor executor;
@@ -135,7 +140,8 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
                         this.fieldNames,
                         this.remoteDatabase,
                         this.remoteTable,
-                        this.shardUrls != null && this.shardUrls.size() > i ? this.shardUrls.get(i) : null);
+                        this.shardUrls != null && this.shardUrls.size() > i ? this.shardUrls.get(i) : null,
+                        this.sharedMemoryLimiter);
             }
             executor.prepareStatement(this.shardConnections.get(i));
             executor.setRuntimeContext(getRuntimeContext());
@@ -268,6 +274,25 @@ public class ClickHouseShardSinkFunction extends AbstractClickHouseSinkFunction{
             //bwRowdata.setNonPrimitiveValue(i, record.getString(i));
         }
         return rowData;
+    }
+
+    private BufferMemoryLimiter createSharedMemoryLimiter() {
+        if (!"http-rowbinary".equals(this.options.getWriterType())) {
+            return null;
+        }
+        long derivedLimit = deriveGlobalBufferLimitBytes();
+        return new BufferMemoryLimiter(derivedLimit);
+    }
+
+    private long deriveGlobalBufferLimitBytes() {
+        // 不新增配置参数，直接基于现有 batch-size/batch-bytes/max-buffered-rows 推导 shard 共享预算。
+        long batchBytes = this.options.getBatchBytes();
+        if (batchBytes <= 0L) {
+            batchBytes = Math.max(16L * 1024L * 1024L, (long) this.options.getBatchSize() * 256L);
+        }
+        long batchCountHint = Math.max(1L,
+                (long) Math.ceil((double) Math.max(this.options.getMaxBufferedRows(), this.options.getBatchSize()) / (double) Math.max(1, this.options.getBatchSize())));
+        return Math.max(batchBytes, batchBytes * batchCountHint);
     }
 
     @Override

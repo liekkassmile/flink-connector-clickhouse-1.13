@@ -1,6 +1,7 @@
 package com.glab.flink.connector.clickhouse.table.internal.executor;
 
 import com.glab.flink.connector.clickhouse.table.internal.connection.ClickHouseConnectionProvider;
+import com.glab.flink.connector.clickhouse.table.internal.converter.ClickHouseRowBinaryEncoder;
 import com.glab.flink.connector.clickhouse.table.internal.converter.ClickHouseRowConverter;
 import com.glab.flink.connector.clickhouse.table.internal.options.ClickHouseOptions;
 import org.apache.flink.api.common.functions.RuntimeContext;
@@ -59,11 +60,12 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
     private final String targetDatabaseName;
     private final String targetTableName;
     private final String targetUrl;
+    private final BufferMemoryLimiter sharedMemoryLimiter;
+    private final boolean useEncodedBuffer;
 
     private transient ClickHouseConnectionProvider connectionProvider;
     private transient ClickHouseConnection directConnection;
     private transient TypeSerializer<RowData> typeSerializer;
-    private transient boolean objectReuseEnabled = false;
     private transient final Object stateLock = new Object();
     private transient BatchBuffer activeBuffer;
     private transient int bufferedRows;
@@ -79,6 +81,8 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
     private transient Counter retryCounter;
     private transient Counter errorCounter;
     private transient Counter smallBatchFlushCounter;
+    private transient ClickHouseRowBinaryEncoder rowBinaryEncoder;
+    private transient DynamicByteArrayOutputStream rowEncodingBuffer;
     private transient volatile boolean running;
     private transient volatile Throwable failure;
 
@@ -91,6 +95,19 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
                                    String targetDatabaseName,
                                    String targetTableName,
                                    String targetUrl) {
+        this(sql, converter, options, logicalTypes, rowDataTypeInformation, fieldNames, targetDatabaseName, targetTableName, targetUrl, null);
+    }
+
+    public ClickHouseBatchExecutor(String sql,
+                                   ClickHouseRowConverter converter,
+                                   ClickHouseOptions options,
+                                   LogicalType[] logicalTypes,
+                                   TypeInformation<RowData> rowDataTypeInformation,
+                                   List<String> fieldNames,
+                                   String targetDatabaseName,
+                                   String targetTableName,
+                                   String targetUrl,
+                                   BufferMemoryLimiter sharedMemoryLimiter) {
         this.options = options;
         this.sql = sql;
         this.converter = converter;
@@ -109,12 +126,15 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
         this.targetDatabaseName = targetDatabaseName;
         this.targetTableName = targetTableName;
         this.targetUrl = targetUrl;
+        this.sharedMemoryLimiter = sharedMemoryLimiter;
+        this.useEncodedBuffer = "http-rowbinary".equals(options.getWriterType());
     }
 
     @Override
     public void prepareStatement(ClickHouseConnection connection) throws SQLException {
         this.directConnection = connection;
         this.connectionProvider = null;
+        initializeEncodingIfNeeded();
         initializeRuntime(1);
     }
 
@@ -122,7 +142,30 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
     public void prepareStatement(ClickHouseConnectionProvider connectionProvider) throws SQLException {
         this.connectionProvider = connectionProvider;
         this.directConnection = null;
+        initializeEncodingIfNeeded();
         initializeRuntime(this.flushThreadNum);
+    }
+
+    private void initializeEncodingIfNeeded() throws SQLException {
+        if (!this.useEncodedBuffer) {
+            this.rowBinaryEncoder = null;
+            this.rowEncodingBuffer = null;
+            return;
+        }
+        try {
+            // http-rowbinary 模式下在 open 阶段初始化编码器，后续每条数据进入缓冲前就完成编码。
+            List<String> clickHouseTypes = HttpRowBinaryWriter.loadClickHouseTypes(
+                    this.options,
+                    this.targetUrl == null ? this.options.getUrl() : this.targetUrl,
+                    this.targetDatabaseName,
+                    this.targetTableName,
+                    this.fieldNames);
+            this.rowBinaryEncoder = new ClickHouseRowBinaryEncoder(this.logicalTypes, clickHouseTypes);
+            int initialCapacity = (int) Math.max(256L, Math.min(this.batchBytes > 0 ? this.batchBytes / 8L : 4096L, 1L << 20));
+            this.rowEncodingBuffer = new DynamicByteArrayOutputStream(initialCapacity);
+        } catch (Exception e) {
+            throw new SQLException("failed to initialize rowbinary encoder", e);
+        }
     }
 
     private void initializeRuntime(int workerCount) {
@@ -156,7 +199,6 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
     public void setRuntimeContext(RuntimeContext context) {
         if (this.rowDataTypeInformation != null) {
             this.typeSerializer = this.rowDataTypeInformation.createSerializer(context.getExecutionConfig());
-            this.objectReuseEnabled = context.getExecutionConfig().isObjectReuseEnabled();
         }
         registerMetrics(context);
     }
@@ -170,18 +212,38 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
         ensureNoFailure();
 
         RowData rowToStore = copyIfNeeded(record);
-        BatchBuffer bufferToFlush = null;
-        synchronized (this.stateLock) {
-            waitForBufferCapacity();
-            ensureNoFailure();
-            if (!this.running) {
-                throw new IOException("executor already closed");
+        EncodedBatch encodedRow = null;
+        long bytesToBuffer;
+        if (this.useEncodedBuffer) {
+            // 先编码、再入缓冲，这样 batch-bytes 统计的是实际发送字节而不是估算值。
+            encodedRow = encodeRow(rowToStore);
+            bytesToBuffer = encodedRow.size();
+            if (this.sharedMemoryLimiter != null) {
+                this.sharedMemoryLimiter.acquire(bytesToBuffer);
             }
+        } else {
+            bytesToBuffer = estimateRowSize(rowToStore);
+        }
 
-            long estimatedBytesForRow = estimateRowSize(rowToStore);
-            this.activeBuffer.add(rowToStore, estimatedBytesForRow);
+        BatchBuffer bufferToFlush = null;
+        boolean added = false;
+        synchronized (this.stateLock) {
+            try {
+                waitForBufferCapacity();
+                ensureNoFailure();
+                if (!this.running) {
+                    throw new IOException("executor already closed");
+                }
+
+                this.activeBuffer.add(rowToStore, encodedRow, bytesToBuffer);
+                added = true;
+            } finally {
+                if (!added && this.sharedMemoryLimiter != null && encodedRow != null) {
+                    this.sharedMemoryLimiter.release(bytesToBuffer);
+                }
+            }
             this.bufferedRows++;
-            this.bufferedBytes += estimatedBytesForRow;
+            this.bufferedBytes += bytesToBuffer;
             if (this.activeBuffer.shouldFlush()) {
                 bufferToFlush = rotateActiveBuffer();
             }
@@ -227,7 +289,10 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
     @Override
     public List<RowData> getBatch() {
         synchronized (this.stateLock) {
-            return this.activeBuffer == null ? Collections.emptyList() : new ArrayList<>(this.activeBuffer.rows);
+            if (this.activeBuffer == null || this.activeBuffer.rows == null) {
+                return Collections.emptyList();
+            }
+            return new ArrayList<>(this.activeBuffer.rows);
         }
     }
 
@@ -274,6 +339,8 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
 
     private BatchBuffer rotateActiveBuffer() {
         BatchBuffer sealed = this.activeBuffer;
+        // 切换活跃缓冲时把流式拼接结果封口，生成可重试、可重复发送的整批字节块。
+        sealed.seal();
         this.activeBuffer = new BatchBuffer(System.nanoTime());
         this.inFlightBuffers++;
         return sealed;
@@ -331,6 +398,16 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
             return this.typeSerializer.copy(record);
         }
         return record;
+    }
+
+    private EncodedBatch encodeRow(RowData rowData) throws IOException {
+        if (this.rowBinaryEncoder == null || this.rowEncodingBuffer == null) {
+            throw new IOException("rowbinary encoder is not initialized");
+        }
+        // 单行编码缓冲重复利用，避免每条数据都新建 ByteArrayOutputStream。
+        this.rowEncodingBuffer.reset();
+        this.rowBinaryEncoder.encodeRow(rowData, this.rowEncodingBuffer);
+        return this.rowEncodingBuffer.toEncodedBatch();
     }
 
     private void ensureNoFailure() throws IOException {
@@ -524,7 +601,11 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
             long startTime = System.nanoTime();
             for (int attempt = 1; attempt <= maxRetries; attempt++) {
                 try {
-                    this.writer.write(batchBuffer.rows);
+                    if (batchBuffer.hasEncodedBatch()) {
+                        this.writer.write(batchBuffer.encodedBatch);
+                    } else {
+                        this.writer.write(batchBuffer.rows);
+                    }
                     onBatchSucceeded(batchBuffer, startTime);
                     return;
                 } catch (NonRetryableClickHouseException e) {
@@ -568,6 +649,10 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
                 inFlightBuffers--;
                 stateLock.notifyAll();
             }
+            // 整批发送结束后再归还共享预算，保证 in-flight 的真实占用也被计入控制范围。
+            if (sharedMemoryLimiter != null && batchBuffer.hasEncodedBatch()) {
+                sharedMemoryLimiter.release(batchBuffer.encodedBatch.size());
+            }
         }
 
         private void closeResources() {
@@ -599,17 +684,32 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
     }
 
     private class BatchBuffer {
-        private final List<RowData> rows = new ArrayList<>();
+        private final List<RowData> rows;
+        private DynamicByteArrayOutputStream encodedBytesStream;
+        private EncodedBatch encodedBatch;
         private final long createdNanos;
         private long estimatedBytes;
         private int rowCount;
 
         private BatchBuffer(long createdNanos) {
             this.createdNanos = createdNanos;
+            this.rows = useEncodedBuffer ? null : new ArrayList<>();
+            if (useEncodedBuffer) {
+                // RowBinary 场景下只保留拼接中的字节流，不再缓存整批 RowData 对象。
+                int initialCapacity = (int) Math.max(1024L, Math.min(batchBytes > 0 ? batchBytes : 64L * 1024L, 8L * 1024L * 1024L));
+                this.encodedBytesStream = new DynamicByteArrayOutputStream(initialCapacity);
+            }
         }
 
-        private void add(RowData rowData, long rowBytes) {
-            this.rows.add(rowData);
+        private void add(RowData rowData, EncodedBatch encodedRow, long rowBytes) throws IOException {
+            if (useEncodedBuffer) {
+                if (encodedRow == null) {
+                    throw new IOException("encoded row is required for rowbinary batches");
+                }
+                encodedRow.writeTo(this.encodedBytesStream);
+            } else {
+                this.rows.add(rowData);
+            }
             this.rowCount++;
             this.estimatedBytes += rowBytes;
         }
@@ -618,8 +718,19 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
             return this.rowCount == 0;
         }
 
+        private boolean hasEncodedBatch() {
+            return this.encodedBatch != null;
+        }
+
         private boolean shouldFlush() {
             return this.rowCount >= batchSize || (batchBytes > 0 && this.estimatedBytes >= batchBytes);
+        }
+
+        private void seal() {
+            if (this.encodedBytesStream != null) {
+                this.encodedBatch = this.encodedBytesStream.toEncodedBatch();
+                this.encodedBytesStream = null;
+            }
         }
     }
 
