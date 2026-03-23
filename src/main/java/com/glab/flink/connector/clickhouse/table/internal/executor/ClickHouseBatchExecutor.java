@@ -573,6 +573,13 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
                         onBatchFinished(batchBuffer);
                     }
                 }
+            } catch (InterruptedException e) {
+                if (isShutdownInterrupt()) {
+                    Thread.currentThread().interrupt();
+                    LOG.debug("ClickHouse flush worker exits on shutdown interrupt: {}", getName());
+                } else {
+                    registerFailure(e);
+                }
             } catch (Throwable t) {
                 registerFailure(t);
             } finally {
@@ -582,6 +589,10 @@ public class ClickHouseBatchExecutor implements ClickHouseExecutor {
 
         private BatchBuffer pollBatch() throws InterruptedException {
             return flushQueue.poll(200L, TimeUnit.MILLISECONDS);
+        }
+
+        private boolean isShutdownInterrupt() {
+            return !running && (flushQueue == null || flushQueue.isEmpty());
         }
 
         private void openWriter() throws Exception {
